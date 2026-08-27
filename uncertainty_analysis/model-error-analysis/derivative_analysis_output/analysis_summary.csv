@@ -1,0 +1,5 @@
+Method,Sigma,Formula,dlog10_alpha_unc
+RMS,0.493608296683718,sqrt(mean(sigma^2)),1
+Mean,0.328726736422309,mean(sigma),1
+Sample,0.494582845108656,sqrt(sum(sigma^2)/(N-1)),1
+chosen,0.493608296683718,RMS,1

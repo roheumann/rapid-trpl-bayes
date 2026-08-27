@@ -1,0 +1,427 @@
+\documentclass[a4paper,11pt]{article}
+
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath,amssymb,mathtools}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{microtype}
+\usepackage{parskip}
+\usepackage[labelfont=bf]{caption}
+
+\newcommand{\btheta}{\boldsymbol{\theta}}
+\newcommand{\MSE}{\mathrm{MSE}}
+\newcommand{\TRPL}{\mathrm{TRPL}}
+\newcommand{\SSPL}{\mathrm{SSPL}}
+\newcommand{\effNN}{\mathrm{eff}}
+\newcommand{\NN}{\mathrm{NN}}
+\newcommand{\logten}{\log_{10}}
+\newcommand{\kT}{k_\mathrm{B}T}
+
+\title{\textbf{Bayesian Inference of Trap Parameters\\from TRPL and SSPL Measurements}\\[0.4em]
+\large Methods Description}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+% =============================================================================
+\section{Overview}
+% =============================================================================
+
+The pipeline infers the parameters of a Shockley--Read--Hall (SRH) trap centre
+from two complementary steady-state and transient optical measurements:
+time-resolved photoluminescence (TRPL) and steady-state photoluminescence
+(SSPL). The inference proceeds in four sequential steps:
+
+\begin{enumerate}
+  \item \textbf{Grid construction:} a discrete parameter grid is built over
+        the physically plausible region of parameter space.
+  \item \textbf{TRPL error computation:} a trained neural-network (NN)
+        surrogate evaluates the TRPL prediction at every grid point and
+        computes a mean-squared error (MSE) against the experimental data.
+  \item \textbf{SSPL error computation:} an analytic (or numeric)
+        steady-state physics solver evaluates the SSPL prediction at every
+        grid point and computes the corresponding MSE.
+  \item \textbf{Bayesian posterior inference:} the two error fields are
+        combined into a joint posterior probability distribution, which is
+        then marginalised and used to derive credible intervals.
+\end{enumerate}
+
+% =============================================================================
+\section{Parameter Space}
+% =============================================================================
+
+For a single SRH trap level the parameter vector is
+\begin{equation}
+  \btheta = \bigl(E_t,\; N_t,\; \tau_n,\; \tau_p,\; k_\mathrm{rad}\bigr),
+\end{equation}
+where $E_t$ (eV) is the trap energy, $N_t$ (cm$^{-3}$) the trap density,
+$\tau_n$ and $\tau_p$ (s) the electron and hole capture lifetimes
+respectively, and $k_\mathrm{rad}$ (cm$^3$\,s$^{-1}$) the radiative
+recombination coefficient.
+
+The grid spans the following bounds:
+\begin{center}
+\begin{tabular}{lllc}
+\toprule
+Parameter & Lower bound & Upper bound & Spacing \\
+\midrule
+$E_t$            & $0.8125$\,eV         & $1.625$\,eV        & linear  \\
+$N_t$            & $10^{12}$\,cm$^{-3}$ & $2.21\times10^{18}$\,cm$^{-3}$ & log$_{10}$ \\
+$\tau_n$         & $10^{-12}$\,s        & $10^{-4}$\,s       & log$_{10}$ \\
+$\tau_p$         & $10^{-12}$\,s        & $10^{-4}$\,s       & log$_{10}$ \\
+$k_\mathrm{rad}$ & $10^{-12}$\,cm$^3$s$^{-1}$ & $10^{-10}$\,cm$^3$s$^{-1}$ & log$_{10}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+In \emph{slice mode}, only two-dimensional cross-sections through the
+parameter space are evaluated, with all remaining parameters fixed at the
+values given by a prior optimizer run (the ``best-fit'' point). Each
+two-dimensional slice contains 100 points per axis, giving $100^2 = 10\,000$
+grid points per pair.
+
+% =============================================================================
+\section{Step~1: Parameter Grid}
+% =============================================================================
+
+The grid is constructed as a Cartesian product of 1-D axes. In slice mode the
+best-fit point is used as the fixed centre: for a slice in parameters
+$(\theta_i, \theta_j)$, all other parameters $\theta_k$ ($k \neq i, j$) are
+set to their best-fit values $\hat{\theta}_k$, and $\theta_i$ and $\theta_j$
+are swept over their full ranges independently. This produces one 2-D table
+per parameter pair. In addition, one-dimensional profiles along each axis
+through $\hat{\btheta}$ are computed in the same way.
+
+% =============================================================================
+\section{Step~2: TRPL Error via Neural-Network Surrogate}
+% =============================================================================
+
+\subsection{Forward model}
+
+The differential carrier lifetime $\tau_\mathrm{diff}$ as a function of
+quasi-Fermi-level splitting $\Delta\mu$ is predicted by a neural network
+trained on $6.5\times10^4$ numerical SRH simulations. The network takes
+as input the feature vector
+\begin{equation}
+  \mathbf{x} = \bigl(
+    \logten n_\mathrm{pulse},\;
+    E_g,\;
+    \logten k_\mathrm{rad},\;
+    \logten N_t,\;
+    E_t / E_g,\;
+    \logten \tau_n,\;
+    \logten \tau_p
+  \bigr)
+\end{equation}
+and outputs $\logten \tau_\mathrm{diff}$ at each point of a fixed QFLS axis
+$\{\Delta\mu_j^{\NN}\}_{j=1}^{M}$ that spans the range relevant for the
+excitation density $n_\mathrm{pulse} = 1.6\times10^{17}$\,cm$^{-3}$.
+
+\subsection{TRPL error metric}
+
+The NN output is linearly interpolated from the network's QFLS axis onto the
+experimental QFLS points $\{\Delta\mu_i^\mathrm{exp}\}_{i=1}^{N}$.
+The TRPL error for a grid point $\btheta$ is the mean squared residual in
+$\logten(\tau_\mathrm{diff})$ space:
+\begin{equation}
+  \MSE_\TRPL(\btheta)
+  = \frac{1}{N}\sum_{i=1}^{N}
+    \Bigl[\logten\hat{\tau}_\mathrm{diff}(\Delta\mu_i^\mathrm{exp};\btheta)
+          - \logten\tau_{\mathrm{diff},i}^\mathrm{exp}\Bigr]^2,
+  \label{eq:mse_trpl}
+\end{equation}
+where $\hat{\tau}_\mathrm{diff}$ denotes the NN prediction interpolated to
+$\Delta\mu_i^\mathrm{exp}$, and $N$ is the number of experimental QFLS points.
+Only points for which $\Delta\mu_i^\mathrm{exp}$ lies within the network's QFLS
+range are included.
+
+% =============================================================================
+\section{Step~3: SSPL Error via Physics Solver}
+% =============================================================================
+
+\subsection{Steady-state carrier equations}
+
+The steady-state hole density $p$ and trap occupancy $n_t$ are determined by
+charge neutrality
+\begin{equation}
+  p = n + n_t
+\end{equation}
+together with the SRH trap occupancy formula. For a single trap level the two
+equations are closed by substituting the trap occupancy into the charge
+neutrality condition, which yields the quadratic
+\begin{equation}
+  \tau_p\, n_t^2
+  + \bigl[\tau_n(n + n_1) + \tau_p(n + p_1)\bigr]\, n_t
+  - N_t\bigl[\tau_n n + \tau_p p_1\bigr] = 0,
+  \label{eq:quad_nt}
+\end{equation}
+where the thermal-equilibrium carrier concentrations at the trap level are
+\begin{equation}
+  n_1 = N_C\,\exp\!\Bigl(\frac{E_t - E_g}{\kT}\Bigr),
+  \qquad
+  p_1 = N_V\,\exp\!\Bigl(\frac{-E_t}{\kT}\Bigr).
+\end{equation}
+The physically relevant root of Eq.~\eqref{eq:quad_nt} is
+\begin{equation}
+  n_t = \frac{-b + \sqrt{b^2 - 4\tau_p c}}{2\tau_p},
+  \quad
+  b = \tau_n(n+n_1)+\tau_p(n+p_1),
+  \quad
+  c = -N_t(\tau_n n + \tau_p p_1).
+\end{equation}
+The hole density follows as $p = n + n_t$.
+
+\subsection{Recombination rates and observables}
+
+The radiative and SRH recombination rates are
+\begin{equation}
+  R_\mathrm{rad} = k_\mathrm{rad}\,n\,p,
+  \qquad
+  R_\mathrm{SRH} = \frac{n\,p}{(n + n_1)\,\tau_p + (p + p_1)\,\tau_n}.
+\end{equation}
+The photoluminescence quantum yield (PLQY) and quasi-Fermi-level splitting
+(QFLS) are
+\begin{equation}
+  \eta = \frac{R_\mathrm{rad}}{R_\mathrm{rad} + R_\mathrm{SRH}},
+  \qquad
+  \Delta\mu = \kT\ln\!\frac{n\,p}{n_i^2},
+\end{equation}
+where $n_i^2 = N_C\,N_V\exp(-E_g/\kT)$ is the intrinsic carrier density
+squared. The carrier density $n$ is swept over $n_\mathrm{sweep} \in
+[10^8,\,N_V]$\,cm$^{-3}$ on a logarithmic axis with 80 points to produce a
+full simulated $\eta(\Delta\mu)$ curve.
+
+\subsection{SSPL error metric}
+
+Both the simulated and experimental PLQY curves are expressed on a logarithmic
+scale.  The simulated curve is linearly interpolated in QFLS to the
+experimental QFLS points, and the SSPL error is
+\begin{equation}
+  \MSE_\SSPL(\btheta)
+  = \frac{1}{N}\sum_{i=1}^{N}
+    \Bigl[\logten\hat{\eta}(\Delta\mu_i^\mathrm{exp};\btheta)
+          - \logten\eta_i^\mathrm{exp}\Bigr]^2.
+  \label{eq:mse_sspl}
+\end{equation}
+
+% =============================================================================
+\section{Step~4: Bayesian Posterior Inference}
+% =============================================================================
+
+\subsection{Prior distribution}
+
+A uniform prior is assumed over the grid in the relevant parameter space.
+For log-spaced parameters ($N_t$, $\tau_n$, $\tau_p$, $k_\mathrm{rad}$) the
+prior is uniform in $\logten$ of the parameter, reflecting ignorance of the
+order of magnitude; for $E_t$ the prior is uniform in physical units.
+Because the grid itself is constructed with the same spacing convention, the
+prior probability mass per grid cell is uniform:
+\begin{equation}
+  \pi(\btheta) \propto \mathrm{const.}
+\end{equation}
+
+\subsection{Gaussian likelihood from MSE}
+
+Each MSE value is interpreted as the mean squared residual of a
+zero-mean Gaussian noise model.  The experimental data $\mathcal{D}$ consist
+of $N$ independent measurements, each affected by additive Gaussian noise
+with standard deviation $\sigma_\effNN$.  The log-likelihood is then
+\begin{equation}
+  \log\mathcal{L}(\mathcal{D}\mid\btheta)
+  = -\frac{\MSE(\btheta)}{2\,\sigma_\effNN^2}
+    - \log\!\bigl(\sigma_\effNN\sqrt{2\pi}\bigr).
+  \label{eq:loglik}
+\end{equation}
+
+\subsection{Effective noise standard deviation}
+
+The noise standard deviation $\sigma_\effNN$ has two contributions that are
+added in quadrature. The first is the intrinsic uncertainty of the NN surrogate
+$\sigma_\NN$, which quantifies the model's predictive error relative to the
+true physics. The second accounts for the finite resolution of the parameter
+grid: even the best grid point may not perfectly describe the data, and its
+residual MSE (the minimum MSE across the entire grid,
+$\MSE_\mathrm{min} = \min_\btheta \MSE(\btheta)$) sets a floor on the
+achievable fit quality. The effective standard deviation is
+\begin{equation}
+  \sigma_\effNN
+  = \sqrt{\sigma_\NN^2 + \MSE_\mathrm{min}}.
+  \label{eq:sigma_eff}
+\end{equation}
+This prevents the posterior from collapsing to a single grid point when the
+best-fit residual is small.  For the present analysis the NN uncertainties are
+$\sigma_\NN^\TRPL = 0.4936$ (in $\logten\tau$ units) and
+$\sigma_\NN^\SSPL = 0.0340$ (in $\logten\eta$ units).
+
+\subsection{Joint posterior from TRPL and SSPL}
+
+The two measurements are treated as independent, so their log-likelihoods add:
+\begin{equation}
+  \log\mathcal{L}_\mathrm{joint}(\mathcal{D}\mid\btheta)
+  = \log\mathcal{L}_\TRPL(\mathcal{D}_\TRPL\mid\btheta)
+  + \log\mathcal{L}_\SSPL(\mathcal{D}_\SSPL\mid\btheta).
+  \label{eq:joint_loglik}
+\end{equation}
+With a uniform prior the unnormalised posterior is equal to the likelihood:
+$P(\btheta\mid\mathcal{D}) \propto \mathcal{L}_\mathrm{joint}(\mathcal{D}\mid\btheta)$.
+
+\subsection{Normalisation and Bayesian evidence}
+
+The discrete normalisation constant (Bayesian evidence) is
+\begin{equation}
+  \mathcal{Z} = \sum_{\btheta \in \mathcal{G}}
+                \mathcal{L}_\mathrm{joint}(\mathcal{D}\mid\btheta),
+  \label{eq:evidence}
+\end{equation}
+where $\mathcal{G}$ is the set of all grid points. The normalised posterior
+probability mass assigned to each grid point is
+\begin{equation}
+  P(\btheta\mid\mathcal{D})
+  = \frac{\mathcal{L}_\mathrm{joint}(\mathcal{D}\mid\btheta)}{\mathcal{Z}}.
+  \label{eq:posterior}
+\end{equation}
+Numerically, the sum in Eq.~\eqref{eq:evidence} is evaluated using the
+log-sum-exp identity to avoid floating-point underflow:
+\begin{equation}
+  \log\mathcal{Z}
+  = \log\sum_\btheta e^{\log\mathcal{L}(\btheta)}
+  = \ell^* + \log\sum_\btheta e^{\log\mathcal{L}(\btheta) - \ell^*},
+  \quad \ell^* = \max_\btheta\log\mathcal{L}(\btheta).
+\end{equation}
+
+\subsection{Marginal distributions}
+
+The two-dimensional marginal posterior over a pair of parameters
+$(\theta_i, \theta_j)$ is obtained by summing over all remaining dimensions:
+\begin{equation}
+  P(\theta_i, \theta_j\mid\mathcal{D})
+  = \sum_{\btheta\,:\,\text{all }k\neq i,j}
+    P(\btheta\mid\mathcal{D}).
+  \label{eq:marginal_2d}
+\end{equation}
+The one-dimensional marginal is
+\begin{equation}
+  p(\theta_i\mid\mathcal{D})
+  = \sum_{\btheta\,:\,\text{all }k\neq i}
+    P(\btheta\mid\mathcal{D}).
+  \label{eq:marginal_1d}
+\end{equation}
+Probability \emph{density} (plotted on the corner-plot diagonal) is obtained
+by dividing the discrete mass by the grid spacing $\Delta_i$ on the axis
+column (which is $\logten(\theta_i)$ for log-spaced parameters):
+\begin{equation}
+  f(\theta_i\mid\mathcal{D}) = \frac{p(\theta_i\mid\mathcal{D})}{\Delta_i},
+  \qquad
+  \sum_i p(\theta_i\mid\mathcal{D})\cdot\Delta_i
+  = \int f(\theta_i)\,d\theta_i = 1.
+\end{equation}
+
+In \emph{slice mode}, the full marginalisation in Eq.~\eqref{eq:marginal_2d}
+is not available because the grid only covers 2-D cross-sections. Instead,
+the one-dimensional marginal for parameter $\theta_i$ is approximated by
+numerically integrating each 2-D slice panel that contains $\theta_i$ over
+the complementary parameter axis (using the trapezoidal rule), and then
+averaging the resulting profiles across all panels.
+
+\subsection{Credible intervals (one-dimensional)}
+\label{sec:ci_1d}
+
+The one-sigma ($1\sigma$, 68.27\%) credible interval $[L, H]$ for a
+one-dimensional marginal is defined as the \emph{smallest contiguous interval}
+that (i) contains the optimizer best-fit value $\hat\theta$ and (ii) encloses
+at least 68.27\% of the posterior probability mass:
+\begin{equation}
+  [L,H] = \underset{L \le \hat\theta \le H}{\arg\min}(H - L)
+  \quad \text{subject to} \quad
+  \int_L^H p(\theta\mid\mathcal{D})\,d\theta \geq 0.6827.
+  \label{eq:ci_1d}
+\end{equation}
+Anchoring to $\hat\theta$ rather than the posterior mode is important when
+the posterior is asymmetric or when the mode and the optimizer result do not
+coincide. The algorithm uses prefix sums for an $\mathcal{O}(N\log N)$
+solution: for every possible left boundary $L \le \hat\theta$, the minimum
+right boundary $H \ge \hat\theta$ that satisfies the mass constraint is found
+by binary search, and the pair $(L, H)$ with the smallest width is retained.
+Analogous intervals for $2\sigma$ (95.45\%) and $3\sigma$ (99.73\%) are
+computed in the same way.  If no best-fit is available the posterior mode
+is used as the anchor point.
+
+\subsection{Credible regions (two-dimensional)}
+\label{sec:ci_2d}
+
+For the two-dimensional marginal panels the $1\sigma$/$2\sigma$/$3\sigma$
+credible regions are defined by iso-probability-mass contours, also anchored
+to the optimizer best-fit point. The procedure is as follows.
+
+\paragraph{HDR contour threshold.}
+Sort all cells of the 2-D marginal by their probability mass $P(\theta_i,
+\theta_j\mid\mathcal{D})$ in descending order. The HDR threshold for a target
+fraction $\alpha_k$ (where $\alpha_1 = 0.6827$, $\alpha_2 = 0.9545$,
+$\alpha_3 = 0.9973$) is the probability value $T_k^\mathrm{HDR}$ such that
+the cumulative mass of all cells with $P \ge T_k^\mathrm{HDR}$ equals
+$\alpha_k$:
+\begin{equation}
+  T_k^\mathrm{HDR}
+  = \min\Bigl\{T : \sum_{\btheta\,:\,P(\theta_i,\theta_j|\mathcal{D})\ge T}
+                    P(\theta_i,\theta_j\mid\mathcal{D}) \ge \alpha_k \Bigr\}.
+\end{equation}
+
+\paragraph{Best-fit anchoring.}
+Let $P_\mathrm{bf} = P(\hat\theta_i, \hat\theta_j\mid\mathcal{D})$ be the
+posterior probability at the best-fit grid point. Each contour threshold is
+then capped to ensure the best-fit lies inside the region:
+\begin{equation}
+  T_k = \min\bigl(T_k^\mathrm{HDR},\; P_\mathrm{bf}\bigr).
+  \label{eq:T_anchor}
+\end{equation}
+If $T_k^\mathrm{HDR} > P_\mathrm{bf}$ (i.e.\ the best-fit would otherwise
+fall outside the HDR region), the threshold is lowered to $P_\mathrm{bf}$,
+expanding the region until the best-fit lies on its boundary. This is the
+direct two-dimensional analogue of the one-dimensional anchoring in
+Eq.~\eqref{eq:ci_1d}.
+
+The $k$-sigma credible region is then the set of parameter pairs satisfying
+\begin{equation}
+  \mathcal{R}_k = \bigl\{(\theta_i,\theta_j)
+                  : P(\theta_i,\theta_j\mid\mathcal{D}) \ge T_k\bigr\}.
+\end{equation}
+The iso-probability contour lines bounding $\mathcal{R}_1$, $\mathcal{R}_2$,
+$\mathcal{R}_3$ are drawn on the corner-plot off-diagonal panels and exported
+as CSV files for external plotting.
+
+% =============================================================================
+\section{Summary of Key Equations}
+% =============================================================================
+
+\begin{align}
+  \MSE_\TRPL(\btheta)
+  &= \frac{1}{N}\sum_i\bigl[\logten\hat\tau(\Delta\mu_i;\btheta)
+     - \logten\tau_i^\mathrm{exp}\bigr]^2
+  \tag{\ref{eq:mse_trpl}} \\[4pt]
+  \MSE_\SSPL(\btheta)
+  &= \frac{1}{N}\sum_i\bigl[\logten\hat\eta(\Delta\mu_i;\btheta)
+     - \logten\eta_i^\mathrm{exp}\bigr]^2
+  \tag{\ref{eq:mse_sspl}} \\[4pt]
+  \sigma_\effNN
+  &= \sqrt{\sigma_\NN^2 + \MSE_\mathrm{min}}
+  \tag{\ref{eq:sigma_eff}} \\[4pt]
+  \log\mathcal{L}(\mathcal{D}\mid\btheta)
+  &= -\frac{\MSE(\btheta)}{2\sigma_\effNN^2}
+     - \log(\sigma_\effNN\sqrt{2\pi})
+  \tag{\ref{eq:loglik}} \\[4pt]
+  \log\mathcal{L}_\mathrm{joint}
+  &= \log\mathcal{L}_\TRPL + \log\mathcal{L}_\SSPL
+  \tag{\ref{eq:joint_loglik}} \\[4pt]
+  P(\btheta\mid\mathcal{D})
+  &= \mathcal{L}_\mathrm{joint}(\mathcal{D}\mid\btheta) \,/\, \mathcal{Z}
+  \tag{\ref{eq:posterior}} \\[4pt]
+  T_k
+  &= \min\!\bigl(T_k^\mathrm{HDR},\; P_\mathrm{bf}\bigr)
+  \tag{\ref{eq:T_anchor}}
+\end{align}
+
+\end{document}

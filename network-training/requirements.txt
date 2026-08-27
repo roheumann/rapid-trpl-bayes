@@ -1,0 +1,25 @@
+# TRPL Neural Network Training — Python dependencies
+# Install with:  pip install -r requirements.txt
+
+# ── Core numerics ─────────────────────────────────────────────────────────────
+numpy
+scipy
+pandas
+
+# ── Deep learning ─────────────────────────────────────────────────────────────
+tensorflow      # model training and inference
+scikit-learn    # StandardScaler (inputs) + MinMaxScaler (outputs)
+joblib          # serialising / loading scaler files
+
+# ── HDF5 data I/O ─────────────────────────────────────────────────────────────
+h5py            # reading and writing simulation + training datasets
+
+# ── Physics simulation ────────────────────────────────────────────────────────
+numba           # JIT-compiled ODE solver in generate_trpl_dataset.py
+
+# ── Plotting ──────────────────────────────────────────────────────────────────
+matplotlib      # training history plots and confusion matrices
+
+# ── Optional: experiment tracking ─────────────────────────────────────────────
+# wandb         # Weights & Biases logging (activate with --wandb flag)
+#               # install separately: pip install wandb

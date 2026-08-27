@@ -1,0 +1,30 @@
+# SSPL + TRPL Multitrap Fitting — Python dependencies
+# Install with:  pip install -r requirements.txt
+
+# ── Core numerics ────────────────────────────────────────────────────────────
+numpy
+scipy
+pandas
+
+# ── Plotting ─────────────────────────────────────────────────────────────────
+matplotlib
+seaborn         # heatmaps and distribution plots in sstrpl_fitting.py
+corner          # corner plots for the CMA-ES optimisation history
+
+# ── Optimisation ─────────────────────────────────────────────────────────────
+pymoo           # CMA-ES and multi-objective optimisation framework
+
+# ── Deep learning / spline preprocessing ────────────────────────────────────
+torch           # required by data_utils.py spline fitting
+splinetorch     # B-spline layer built on PyTorch (pip install splinetorch)
+tensorflow      # required for neural-network surrogate fitting (trpl_fitting.py)
+scikit-learn    # scalers (StandardScaler, MinMaxScaler) used by the NN surrogate
+joblib          # loading .joblib scaler files for the NN surrogate
+
+# ── HDF5 data loading ────────────────────────────────────────────────────────
+h5py            # reading raw TRPL hypercube files
+
+# ── Jupyter / notebook widgets ───────────────────────────────────────────────
+jupyterlab      # or: jupyter notebook
+ipywidgets      # interactive widgets in the notebook
+ipympl          # %matplotlib widget backend

@@ -1,0 +1,85 @@
+{
+  "run_name": "shallow_plateau_1trap",
+  "output_dir": "../pipeline_results/shallow_plateau_1trap",
+
+  "physics": {
+    "Eg_eV": 1.625,
+    "npulse_cm3": 1.6e17,
+    "NC_cm3": 2.21359e18,
+    "NV_cm3": 2.21359e18,
+    "T_K": 300,
+    "num_traps": 1,
+    "tau0_s": null
+  },
+
+  "nn": {
+    "model_path": "../../nn-training/20260407-231442-3594-2Trap-262128sims/model.keras",
+    "param_scaler_path": "../../nn-training/20260407-231442-3594-2Trap-262128sims/20260407-231442-3594-2Trap-262128sims_65536_t_256_training_param_scaler.joblib",
+    "output_scaler_path": "../../nn-training/20260407-231442-3594-2Trap-262128sims/20260407-231442-3594-2Trap-262128sims_65536_t_256_training_output_scaler.joblib",
+    "training_hdf5_path": "../../nn-training/20260407-231442-3594-2Trap-262128sims/20260407-231442-3594-2Trap-262128sims_65536_t_256_training.hdf5"
+  },
+
+  "data": {
+    "trpl_csv": "../data/sim_trpl_shallow_trap_1.23_second.csv",
+    "sspl_csv": "../data/sim_sspl_shallow_plateau_trap1.23.csv"
+  },
+
+  "best_fit": {
+    "json_path": "../fit_results/20260402-140410_synthetic_trpl_shallow_plateau_1trap_fit_results/synthetic_trpl_shallow_plateau_1trap_parameters.json"
+  },
+
+  "grid": {
+    "mode": "slice", 
+    "chunk_size": 100000,
+    "slice_n_points": 80,
+    "traps": [
+      {
+        "Et_bounds_eV": [0.8125, 1.625],
+        "Et_n_points": 100,
+        "Nt_bounds_cm3": [1e12, 2.21359e18],
+        "Nt_n_points": 100,
+        "taun_bounds_s": [1e-12, 1e-4],
+        "taun_n_points": 100,
+        "taup_bounds_s": [1e-12, 1e-4],
+        "taup_n_points": 100
+      }
+    ],
+    "krad_bounds_cm3s": [1e-12, 1e-10],
+    "krad_n_points": 100
+  },
+
+  "sspl": {
+    "n_sweep_lo": 1e8,
+    "n_sweep_hi": 2.21359e18,
+    "n_sweep_n": 80,
+    "solver": "analytic",
+    "compare": "plqy_vs_qfls"
+  },
+
+  "plot": {
+    "colorscale_levels": 10,
+    "colorscale_vmin": null,
+    "colorscale_vmax": null
+  },
+
+  "bayesian": {
+    "sigma_trpl": 4.9361e-01,
+    "sigma_sspl": 0.033957756523298785,
+    "chunk_size": 1000000
+  },
+
+  "hardware": {
+    "cuda_device": "1",
+    "gpu_memory_frac": 0.5,
+    "batch_size": 8192
+  },
+
+  "true_params": {
+    "Et_1_eV": 1.23,
+    "Nt_1_cm-3": 1e17,
+    "tau_n_1_s": 1e-7,
+    "tau_p_1_s": 1e-6,
+    "krad_cm3s": 1e-11
+  }
+
+}

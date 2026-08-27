@@ -1,0 +1,30 @@
+# Core — required by both fitting/ and uncertainity_analysis/
+numpy
+pandas
+scipy
+matplotlib
+
+# Optimisation (fitting/)
+pymoo
+
+# Model/scaler serialisation
+joblib
+
+# HDF5 file I/O (training datasets, NN artefacts)
+h5py
+
+# Neural-network surrogate (fitting/ NN mode + uncertainity_analysis/02_trpl_errors.py)
+tensorflow
+scikit-learn
+
+# Spline preprocessing (fitting/data_utils.spline_torch)
+torch
+splinetorch
+
+# Plotting utilities
+seaborn
+corner
+
+# Interactive Jupyter notebook widgets (fitting/main.ipynb)
+ipywidgets
+ipympl

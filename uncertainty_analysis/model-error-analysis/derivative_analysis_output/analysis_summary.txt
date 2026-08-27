@@ -1,0 +1,32 @@
+=== Derivative / Sigma Analysis Summary ===
+
+Date: 29-May-2026 15:11:02
+
+--- Physical parameters ---
+  T       = 300 K
+  kT      = 0.025852 eV
+  Eg      = 1.625 eV
+  Nc = Nv = 2.200e+18 cm^-3
+  npulse  = 1.600e+17 cm^-3
+  ni      = 4.932e+04 cm^-3
+  QFLS range: [0.9000, 1.4895] eV (N=256 points)
+
+--- Alpha uncertainty ---
+  dlog10_alpha_unc = log10(10^1) = 1
+  (i.e. alpha assumed uncertain by a factor of 10^1)
+
+--- Homoskedastic sigma (three formulas) ---
+  RMS     : sqrt(mean(sigma^2))        = 4.936083e-01
+  Mean    : mean(sigma)                = 3.287267e-01
+  Sample  : sqrt(sum(sigma^2)/(N-1))   = 4.945828e-01
+
+--- Chosen value ---
+  Method        : RMS
+  sigma_chosen  = 4.936083e-01
+
+--- Folders included ---
+  simulation_results-shallow-plateau_alphas-mu-1
+  simulation_results-shallow_photodoping_alphas-mu-1
+  simulation_results-no-photodopgin_alphas-mu-1
+  simulation_results-trap-high-Nt_alphas-mu-1
+  simulation_results-trap-low-Nt_alphas-mu-1

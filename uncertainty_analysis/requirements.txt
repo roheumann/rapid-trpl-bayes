@@ -1,0 +1,22 @@
+# TRPL/SSPL Bayesian Inference Pipeline — Python dependencies
+# Install with:  pip install -r requirements.txt
+
+# ── Core numerics ─────────────────────────────────────────────────────────────
+numpy
+scipy
+pandas
+
+# ── Plotting ──────────────────────────────────────────────────────────────────
+matplotlib
+corner          # corner plots (used by trpl_fitting.py support module)
+
+# ── Neural-network surrogate (step 02: TRPL errors) ──────────────────────────
+tensorflow      # NN inference in 02_trpl_errors.py
+scikit-learn    # StandardScaler / MinMaxScaler loaded from joblib files
+joblib          # loading .joblib scaler artefacts
+
+# ── HDF5 data I/O ─────────────────────────────────────────────────────────────
+h5py            # reading the training HDF5 to obtain the QFLS axis
+
+# ── Optimisation (trpl_fitting.py support module) ─────────────────────────────
+pymoo           # CMA-ES used inside trpl_fitting.py

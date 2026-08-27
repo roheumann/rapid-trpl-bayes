@@ -1,0 +1,58 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it together with the archived dataset listed under identifiers."
+type: software
+
+title: "TRPL/SSPL Multitrap Analysis"
+abstract: >-
+  Two complementary Python toolsets for extracting trap parameters from
+  time-resolved (TRPL) and steady-state (SSPL) photoluminescence measurements
+  of semiconductor thin films using Shockley–Read–Hall recombination models.
+  Provides CMA-ES parameter fitting with an optional neural-network surrogate
+  for the transient solver, and a Bayesian grid pipeline that maps the posterior
+  over the full parameter space and reports credible intervals.
+
+authors:
+  - given-names: Robin
+    family-names: Heumann
+    orcid: "https://orcid.org/0009-0007-8721-9740"   # replace with real ORCID
+    affiliation: "Forschungszentrum Jülich GmbH"
+  - given-names: Toby 
+    family-names: Rudolph
+    orcid: "https://orcid.org/0009-0008-7558-0771"   # replace with real ORCID
+    affiliation: "Forschungszentrum Jülich GmbH"
+  - given-names: Huang 
+    family-names: Gaosheng
+    orcid: "https://orcid.org/0009-0003-2370-2232"   # replace with real ORCID
+    affiliation: "Forschungszentrum Jülich GmbH"
+  - given-names: Thomas 
+    family-names: Kirchartz
+    orcid: "https://orcid.org/0000-0002-6954-8213"   # replace with real ORCID
+    affiliation: "Forschungszentrum Jülich GmbH, RWTH Aachen University"
+  - given-names: Chris
+    family-names: Dreessen
+    orcid: "https://orcid.org/0000-0001-7444-6900"   # replace with real ORCID
+    affiliation: "Forschungszentrum Jülich GmbH"     # confirm affiliation
+
+repository-code: "https://github.com/roheumann/rapid-trpl-bayes"
+license: MIT                                          # replace with your SPDX licence ID
+version: 1.0.0
+date-released: "2026-08-27"
+
+keywords:
+  - time-resolved photoluminescence
+  - steady-state photoluminescence
+  - Shockley-Read-Hall recombination
+  - Bayesian inference
+  - parameter identifiability
+  - semiconductor thin films
+
+identifiers:
+  - type: doi
+    value: 10.26165/JUELICH-DATA/2IEHBF
+    description: >-
+      Archived code snapshot, trained neural-network surrogate models and measurement
+      data accompanying this software, published in Jülich DATA.
+
+# Once the accompanying paper is published, add a `preferred-citation:` block
+# here with the article metadata (type, authors, journal, year, doi). GitHub's
+# "Cite this repository" prompt will then offer the paper instead of the code.

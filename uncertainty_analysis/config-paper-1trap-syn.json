@@ -1,0 +1,89 @@
+{
+  "run_name": "shallow_plateau_1trap",
+  "output_dir": "../pipeline_results/shallow_1trap_syn",
+  "physics": {
+    "Eg_eV": 1.625,
+    "npulse_cm3": 1.6e+17,
+    "NC_cm3": 2.21359e+18,
+    "NV_cm3": 2.21359e+18,
+    "T_K": 300,
+    "num_traps": 1,
+    "tau0_s": 36282.542120234386
+  },
+  "nn": {
+    "model_path": "../../nn-training/20260402-112530-3579-1Trap-65536sims/model.keras",
+    "param_scaler_path": "../../nn-training/20260402-112530-3579-1Trap-65536sims/1Trap_TRPL_Simulation_02_04_2026_sims_65536_t_256_training_param_scaler.joblib",
+    "output_scaler_path": "../../nn-training/20260402-112530-3579-1Trap-65536sims/1Trap_TRPL_Simulation_02_04_2026_sims_65536_t_256_training_output_scaler.joblib",
+    "training_hdf5_path": "../../nn-training/20260402-112530-3579-1Trap-65536sims/1Trap_TRPL_Simulation_02_04_2026_sims_65536_t_256_training.hdf5"
+  },
+  "data": {
+    "trpl_csv": "../fit_results/Ye-Genghua-Shallow-Trap/1trap-syn/interpolated_trpl_data_rem_1trap_ye_genghua.csv",
+    "sspl_csv": "../fit_results/Ye-Genghua-Shallow-Trap/1trap-syn/interpolated_sspl_data_rem_1trap_ye_genghua.csv"
+  },
+  "best_fit": {
+    "json_path": "../fit_results/Ye-Genghua-Shallow-Trap/1trap-syn/1traps-trpl_parameters-syn.json"
+  },
+  "grid": {
+    "mode": "slice",
+    "chunk_size": 100000,
+    "slice_n_points": 80,
+    "traps": [
+      {
+        "Et_bounds_eV": [
+          0.8125,
+          1.625
+        ],
+        "Et_n_points": 100,
+        "Nt_bounds_cm3": [
+          1000000000000.0,
+          2.21359e+18
+        ],
+        "Nt_n_points": 100,
+        "taun_bounds_s": [
+          1e-12,
+          0.0001
+        ],
+        "taun_n_points": 100,
+        "taup_bounds_s": [
+          1e-12,
+          0.0001
+        ],
+        "taup_n_points": 100
+      }
+    ],
+    "krad_bounds_cm3s": [
+      1e-12,
+      1e-10
+    ],
+    "krad_n_points": 100
+  },
+  "sspl": {
+    "n_sweep_lo": 100000000.0,
+    "n_sweep_hi": 2.21359e+18,
+    "n_sweep_n": 80,
+    "solver": "analytic",
+    "compare": "plqy_vs_qfls"
+  },
+  "plot": {
+    "colorscale_levels": 10,
+    "colorscale_vmin": null,
+    "colorscale_vmax": null
+  },
+  "bayesian": {
+    "sigma_trpl": 0.029544,
+    "sigma_sspl": 0.033957756523298785,
+    "chunk_size": 1000000
+  },
+  "hardware": {
+    "cuda_device": "1",
+    "gpu_memory_frac": 0.5,
+    "batch_size": 8192
+  },
+  "true_params": {
+    "Et_1_eV": 1.4932,
+    "Nt_1_cm-3": 4.1975e+16,
+    "tau_n_1_s": 3.0115e-09,
+    "tau_p_1_s": 6.822e-08,
+    "krad_cm3s": 1e-10
+  }
+}
