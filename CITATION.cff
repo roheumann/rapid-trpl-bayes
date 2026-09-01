@@ -4,12 +4,17 @@ type: software
 
 title: "TRPL/SSPL Multitrap Analysis"
 abstract: >-
-  Two complementary Python toolsets for extracting trap parameters from
-  time-resolved (TRPL) and steady-state (SSPL) photoluminescence measurements
-  of semiconductor thin films using Shockley–Read–Hall recombination models.
-  Provides CMA-ES parameter fitting with an optional neural-network surrogate
+  The dataset entails synthetic physics simulations and experimental photoluminescence measurements 
+  by HEUMANN, RUDOLPH, HUANG, KIRCHARTZ and DREESSEN (Forschungszentrum Jülich), 
+  supporting neural-network-accelerated Shockley–Read–Hall (SRH) trap characterisation of semiconductor thin films. 
+  The basic methodology is described in 
+  "Heumann et al. (2026): Rapid Parameter Estimation from Photoluminescence Decays of Halide Perovskite Thin Films , Advanced Energy Materials, [DOI]". 
+  The dataset contains scripts using Python toolsets for extracting trap parameters from  time-resolved (TRPL) and 
+  steady-state (SSPL) photoluminescence measurements of semiconductor thin films using Shockley–Read–Hall recombination models with radiative recombination included. These scripts provide CMA-ES parameter fitting with an optional neural-network surrogate
   for the transient solver, and a Bayesian grid pipeline that maps the posterior
   over the full parameter space and reports credible intervals.
+  At its core, the dataset provides a large synthetic training corpus of differential carrier lifetime (τ_diff) vs. quasi-Fermi level splitting (QFLS) curves, 
+  computed by numerically solving the SRH transient ODE over a quasi-random Sobol-sampled parameter space and one to two trap levels for the material. Complementing these simulations, the dataset includes experimental time-resolved (TRPL) and steady-state (SSPL) photoluminescence measurements from perovskite thin-film samples, which serve as targets for parameter fitting and Bayesian uncertainty quantification. A further component comprises 1D spatial PDE diffusion simulations (Beer–Lambert excitation profile, film thickness 450 nm, Eg = 1.625 eV) run across five representative physical scenarios and five optical absorption coefficients (α = 10⁴–10⁶ cm⁻¹), from which a homoskedastic model-error sigma (σ_trpl = 0.4936 in log₁₀ space) is derived; this value parameterises the Gaussian log-likelihood in the Bayesian inference stage and accounts for the approximation error of the 0D point model relative to the full 1D diffusion model. Pre-trained neural-network surrogate model artefacts are provided alongside, enabling τ_diff curve prediction at orders-of-magnitude lower computational cost than the ODE solver. The data provided contains relevant variables of the semiconductor photophysical recombination cycle, including trap density (N_t), trap energy level (E_t), electron and hole SRH lifetimes (τ_n, τ_p), radiative recombination coefficient (k_rad), bandgap energy (E_g), carrier excitation density, quasi-Fermi level splitting, differential decay time and photoluminescence quantum yield. (2026)
 
 authors:
   - given-names: Robin
@@ -41,10 +46,15 @@ date-released: "2026-08-27"
 keywords:
   - time-resolved photoluminescence
   - steady-state photoluminescence
-  - Shockley-Read-Hall recombination
   - Bayesian inference
   - parameter identifiability
   - semiconductor thin films
+  - perovskite solar cells
+  - transient photoluminescence
+  - uncertainty quantification
+  - machine learning
+  - Shockley-Read-Hall recombination
+  - charge-carrier lifetime
 
 identifiers:
   - type: doi
