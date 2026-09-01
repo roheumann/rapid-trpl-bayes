@@ -10,9 +10,9 @@ model using **CMA-ES** global optimisation.
 
 ```
 .
-├── main-paper-ye-genghua.ipynb              ← example 2-trap fitting workflow
-├── main-paper-ye-genghua-low-high-Nt.ipynb  ← multi-npulse simultaneous fitting
-├── main-paper-ye-genghua-1trap-syn.ipynb    ← synthetic 1-trap test workflow
+├── Figure9.ipynb              ← 2-trap fitting workflow for the 85:15 film transient PL data, corresponding to Figure9 in the main paper
+├── Figure10.ipynb             ← 1-trap fits enforcing a high and low trap density for the 85:15 film transient PL data, corresponding to Figure10 in the main paper
+├── Figure5.ipynb               ← synthetic 1-trap test workflow, corresponding to Figure5 in the main paper
 ├── sstrpl_fitting.py           ← main fitting engine (fit_multitrap, plot_fit, plot_corner)
 ├── trpl_fitting.py             ← TRPL-only fitting (fit_trpl_multitrap); NN loader (load_nn_artifacts)
 ├── sspl_module.py              ← steady-state SRH solver
