@@ -63,10 +63,25 @@ identifiers:
     description: >-
       Archived code snapshot, trained neural-network surrogate models and measurement
       data accompanying this software, published in Jülich DATA.
-  - type: doi
-    value: arXiv:2609.18438 
-    description: >-
-      Preprint of the paper Rapid Rapid Parameter Estimation from Photoluminescence Decays of Halide Perovskite Thin Films
+
+preferred-citation:
+  type: article
+  title: "Rapid Parameter Estimation from Photoluminescence Decays of Halide Perovskite Thin Films"
+  authors:
+    - family-names: Heumann
+      given-names: Robin
+    - family-names: Rudolph
+      given-names: Toby
+    - family-names: Huang
+      given-names: Gaosheng
+    - family-names: Kirchartz
+      given-names: Thomas
+    - family-names: Dreessen
+      given-names: Chris
+  year: 2026
+  journal: "arXiv"
+  notes: "arXiv:2609.18438"
+  url: "https://arxiv.org/abs/2609.18438"
 
 # Once the accompanying paper is published, add a `preferred-citation:` block
 # here with the article metadata (type, authors, journal, year, doi). GitHub's
