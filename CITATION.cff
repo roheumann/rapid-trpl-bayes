@@ -2,13 +2,14 @@ cff-version: 1.2.0
 message: "If you use this software, please cite it together with the archived dataset listed under identifiers."
 type: software
 
-title: "TRPL/SSPL Multitrap Analysis"
+title: "Scripts for Rapid Parameter Estimation from Photoluminescence Decays of Halide Perovskite Thin Films"
 abstract: >-
   The dataset entails synthetic physics simulations and experimental photoluminescence measurements 
   by HEUMANN, RUDOLPH, HUANG, KIRCHARTZ and DREESSEN (Forschungszentrum Jülich), 
   supporting neural-network-accelerated Shockley–Read–Hall (SRH) trap characterisation of semiconductor thin films. 
   The basic methodology is described in 
-  "Heumann et al. (2026): Rapid Parameter Estimation from Photoluminescence Decays of Halide Perovskite Thin Films , Advanced Energy Materials, [DOI]". 
+  "Heumann et al. (2026): Rapid Parameter Estimation from Photoluminescence Decays of Halide Perovskite Thin Films , arxiv,  	
+  https://doi.org/10.48550/arXiv.2609.18438". 
   The dataset contains scripts using Python toolsets for extracting trap parameters from  time-resolved (TRPL) and 
   steady-state (SSPL) photoluminescence measurements of semiconductor thin films using Shockley–Read–Hall recombination models with radiative recombination included. These scripts provide CMA-ES parameter fitting with an optional neural-network surrogate
   for the transient solver, and a Bayesian grid pipeline that maps the posterior
@@ -62,6 +63,10 @@ identifiers:
     description: >-
       Archived code snapshot, trained neural-network surrogate models and measurement
       data accompanying this software, published in Jülich DATA.
+  - type: doi
+    value: arXiv:2609.18438 
+    description: >-
+      Preprint of the paper Rapid Rapid Parameter Estimation from Photoluminescence Decays of Halide Perovskite Thin Films
 
 # Once the accompanying paper is published, add a `preferred-citation:` block
 # here with the article metadata (type, authors, journal, year, doi). GitHub's

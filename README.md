@@ -10,6 +10,8 @@ of semiconductor thin films using Shockley–Read–Hall (SRH) recombination mod
 
 | | Location |
 |---|---|
+| **Related Publication** | <    
+https://doi.org/10.48550/arXiv.2609.18438> |
 | **Source code — current and all future versions** | <https://github.com/roheumann/rapid-trpl-bayes> |
 | **Archived snapshot for the publication (frozen)** | [`10.26165/JUELICH-DATA/2IEHBF`](https://doi.org/10.26165/JUELICH-DATA/2IEHBF) — Jülich DATA |
 
@@ -136,7 +138,7 @@ Some packages are only required for specific features:
 
 If you use this software or the accompanying data, please cite this paper:
 
-> Heumann, R., & Dreessen, C. (2026). * Rapid Parameter Estimation from Photoluminescence Decays of Halide Perovskite Thin Films*.
+> @misc{heumann2026rapidparameterestimationphotoluminescence,title={Rapid Parameter Estimation from Photoluminescence Decays of Halide Perovskite Thin Films}, author={Robin Heumann and Toby Rudolph and Gaosheng Huang and Thomas Kirchartz and Chris Dreessen},year={2026},eprint={2609.18438},archivePrefix={arXiv},primaryClass={cond-mat.mtrl-sci},url={https://arxiv.org/abs/2609.18438},}
 > Jülich DATA. https://doi.org/10.26165/JUELICH-DATA/2IEHBF
 
 A machine-readable `CITATION.cff` is included in the root of the Git repository,
