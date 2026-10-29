@@ -66,6 +66,9 @@ _parser.add_argument("--taun-min",         type=float, default=None, help="taun 
 _parser.add_argument("--taun-max",         type=float, default=None, help="taun upper bound [s]")
 _parser.add_argument("--taup-min",         type=float, default=None, help="taup lower bound [s]")
 _parser.add_argument("--taup-max",         type=float, default=None, help="taup upper bound [s]")
+_parser.add_argument("--scramble-seed",    type=int,   default=None,
+                     help="Scrambled Sobol sequence with this seed (e.g. for an independent test set); "
+                          "default: unscrambled")
 _parser.add_argument("--output-dir",       type=str,   default=None,
                      help="Directory to save the HDF5 output "
                           "(default: ./Synthetic-Training-Data)")
@@ -89,7 +92,7 @@ TMIN       = 1e-11  # time grid for ODE solver [s]
 TMAX       = 1e5    # maximum simulation time [s] (must be >> longest trap lifetime to reach equilibrium)
 QFLS_STEPS = 256   # number of log-spaced time evaluation points
 PL_DECAY_MAGNITUDE = 12
-tarr = np.logspace(np.log10(TMIN), np.log10(TMAX), QFLS_STEPS)
+tarr = [0, 1e5]
 
 ##################################################################
 ############ USER SETTINGS  ######################################
@@ -114,19 +117,19 @@ print(f"DIM     (effective): {DIM}  →  {2**DIM} Sobol draws")
 ############ Build parameter bounds
 # Shared parameters (always 3):
 #   n_pulse : [1e12,  1e18]  cm^-3  (initial photoexcited carrier density)
-#   Eg      : [1.15,  2.35]  eV     (bandgap; stored as log10 → actual range
+#   Eg      : [1.15,  2.4]  eV     (bandgap; stored as log10 → actual range
 #                                    directly after scaling)
-#   k_rad   : [1e-12, 1e-10] cm^3/s (radiative recombination coefficient)
+#   k_rad   : [1e-12, 1e-9] cm^3/s (radiative recombination coefficient)
 SHARED_L = [1E12,    10**1.15, 1.0E-12]
-SHARED_U = [1E18,    10**2.35, 1.0E-10]
+SHARED_U = [1E18,    10**2.4, 1.0E-9]
 
 # Per-trap parameters (4 per trap):
-#   Ntrap      : [1e13, 1e20]  cm^-3  (trap density)
-#   DeltaEtrap : [0.5,  0.975] (fraction of Eg; range avoids band edges by ~kT)
+#   Ntrap      : [1e13, 2e18]  cm^-3  (trap density)
+#   DeltaEtrap : [0.5,  1.0]  (fraction of Eg: from midgap to the CB edge)
 #   taun       : [1e-11, 1e-4] s      (electron lifetime → beta_n = 1/(taun*Ntrap))
 #   taup       : [1e-11, 1e-4] s      (hole lifetime)
 TRAP_L = [1E12,    10**0.5,   1E-12, 1E-12]
-TRAP_U = [1E20,    10**0.975, 1E-4,  1E-4 ]
+TRAP_U = [2E18,    10**1.0, 1E-4,  1E-4 ]
 
 # CLI overrides for bounds
 if _cli_args.n_pulse_min     is not None: SHARED_L[0] = _cli_args.n_pulse_min
@@ -137,8 +140,8 @@ if _cli_args.krad_min        is not None: SHARED_L[2] = _cli_args.krad_min
 if _cli_args.krad_max        is not None: SHARED_U[2] = _cli_args.krad_max
 if _cli_args.ntrap_min       is not None: TRAP_L[0]   = _cli_args.ntrap_min
 if _cli_args.ntrap_max       is not None: TRAP_U[0]   = _cli_args.ntrap_max
-if _cli_args.delta_etrap_min is not None: TRAP_L[1]   = _cli_args.delta_etrap_min
-if _cli_args.delta_etrap_max is not None: TRAP_U[1]   = _cli_args.delta_etrap_max
+if _cli_args.delta_etrap_min is not None: TRAP_L[1]   = 10 ** _cli_args.delta_etrap_min   # stored as 10**value, like Eg
+if _cli_args.delta_etrap_max is not None: TRAP_U[1]   = 10 ** _cli_args.delta_etrap_max
 if _cli_args.taun_min        is not None: TRAP_L[2]   = _cli_args.taun_min
 if _cli_args.taun_max        is not None: TRAP_U[2]   = _cli_args.taun_max
 if _cli_args.taup_min        is not None: TRAP_L[3]   = _cli_args.taup_min
@@ -160,7 +163,8 @@ free_idx   = np.where(~fixed_mask)[0]
 fixed_idx  = np.where( fixed_mask)[0]
 
 n_free = len(free_idx)
-sampler = qmc.Sobol(d=n_free, scramble=False)
+sampler = (qmc.Sobol(d=n_free, scramble=True, seed=_cli_args.scramble_seed)
+           if _cli_args.scramble_seed is not None else qmc.Sobol(d=n_free, scramble=False))
 sample_free = sampler.random_base2(m=DIM)
 
 # Scale free dimensions
@@ -273,6 +277,7 @@ creation_params = {
     "tmin_s":                   TMIN,
     "tmax_s":                   TMAX,
     "pl_decay_magnitude":       PL_DECAY_MAGNITUDE,
+    "sobol_scramble_seed":      _cli_args.scramble_seed,
     "parameter_names":          param_names_list,
     "bounds_physical": {
         name: {"lower": float(lb_arr[i]), "upper": float(ub_arr[i])}

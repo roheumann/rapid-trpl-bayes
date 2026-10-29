@@ -190,6 +190,142 @@ def build_model(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# PL-decade axis (training HDF5 with axis = 'pl_decades', networks from 10/2026)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Targets live on a fixed grid of u = log10(PL/PL0) and are NaN where a curve
+# has no valid value (masked, never filled).  Two variants:
+#   minimal : build_model() unchanged, 256 outputs on every 2nd grid point
+#   hybrid  : DeepONet-style — the conv stack of build_model() is the branch,
+#             the tabulated output layer Dense(256) is replaced by
+#             Dense(p) (branch coefficients) · trunk(phi(u)), so the curve can
+#             be evaluated at any u.  phi(u) are fixed Fourier features
+#             (computed outside the network, see u_features) so that the
+#             saved models contain only standard Keras layers.
+
+def masked_mse(y_true, y_pred):
+    """Per-curve mean squared error over the valid (finite) targets."""
+    mask = tf.math.is_finite(y_true)
+    w = tf.cast(mask, y_pred.dtype)
+    diff = tf.where(mask, y_pred - tf.cast(y_true, y_pred.dtype), tf.zeros_like(y_pred))
+    return tf.reduce_sum(w * tf.square(diff), axis=-1) / tf.maximum(tf.reduce_sum(w, axis=-1), 1.0)
+
+
+def masked_mae(y_true, y_pred):
+    """Per-curve mean absolute error over the valid (finite) targets."""
+    mask = tf.math.is_finite(y_true)
+    w = tf.cast(mask, y_pred.dtype)
+    diff = tf.where(mask, y_pred - tf.cast(y_true, y_pred.dtype), tf.zeros_like(y_pred))
+    return tf.reduce_sum(w * tf.abs(diff), axis=-1) / tf.maximum(tf.reduce_sum(w, axis=-1), 1.0)
+
+
+def u_features(u, decades: float = 12.0, n_freq: int = 8) -> np.ndarray:
+    """
+    Trunk input phi(u): u_n = (u + decades/2)/(decades/2) in [-1, 1] and
+    sin/cos(2^k pi u_n), k = 0 .. n_freq-1  ->  (len(u), 1 + 2 n_freq), float32.
+    Must be identical in training and inference (stored in surrogate_meta.json).
+    """
+    u = np.asarray(u, np.float64)
+    un = (u + decades / 2.0) / (decades / 2.0)
+    feats = [un]
+    for k in range(n_freq):
+        w = (2.0 ** k) * np.pi
+        feats += [np.sin(w * un), np.cos(w * un)]
+    return np.stack(feats, axis=-1).astype(np.float32)
+
+
+def build_hybrid_model(
+    input_dim: int,
+    n_feat: int,
+    num_conv_layers: int = 2,
+    kernel_size: int = 16,
+    max_filter: int = 128,
+    map_size: int = 64,
+    p: int = 128,
+    trunk_hidden: int = 128,
+    lr: float = 1e-3,
+):
+    """
+    Hybrid DeepONet surrogate.  Returns (combined, branch, trunk).
+
+    branch : parameters (B, input_dim) -> b (B, p)
+             Dense seed + [UpSampling1D + Conv1D] x num_conv_layers as in
+             build_model(), then Flatten -> Dense(p)
+    trunk  : phi(u) (B, M, n_feat) -> t (B, M, p)   (Dense layers act on the last axis)
+    output : sigmoid(b . t) on the scaled log10 tau axis (as build_model)
+    """
+    inp = keras.Input(shape=(input_dim,), name="parameters")
+    x = layers.Dense(max_filter, activation="gelu", name="dense_seed_0")(inp)
+    x = layers.Dense(max_filter * map_size, activation="gelu", name="dense_seed_1")(x)
+    x = layers.Reshape((map_size, max_filter), name="reshape")(x)
+    for i in range(num_conv_layers):
+        n_filters = max(1, max_filter // (2 ** (i + 1)))
+        x = layers.UpSampling1D(size=2, name=f"upsample_{i}")(x)
+        x = layers.Conv1D(filters=n_filters, kernel_size=kernel_size, padding="same",
+                          activation="gelu", name=f"conv_{i}")(x)
+    x = layers.Flatten(name="flatten")(x)
+    b = layers.Dense(p, name="branch_coefficients")(x)
+    branch = keras.Model(inp, b, name="branch")
+
+    f_in = keras.Input(shape=(None, n_feat), name="u_features")
+    t = layers.Dense(trunk_hidden, activation="gelu", name="trunk_0")(f_in)
+    t = layers.Dense(trunk_hidden, activation="gelu", name="trunk_1")(t)
+    t = layers.Dense(p, name="trunk_basis")(t)          # with bias -> theta-dependent offset b . c
+    trunk = keras.Model(f_in, t, name="trunk")
+
+    P = keras.Input(shape=(input_dim,), name="parameters_in")
+    F = keras.Input(shape=(None, n_feat), name="u_features_in")
+    out = layers.Dot(axes=(1, 2), name="branch_dot_trunk")([branch(P), trunk(F)])   # (B, M)
+    out = layers.Activation("sigmoid", name="output")(out)
+    combined = keras.Model([P, F], out, name="hybrid_deeponet")
+    combined.compile(optimizer=keras.optimizers.Adam(learning_rate=lr),
+                     loss=masked_mse, metrics=[masked_mse, masked_mae])
+    return combined, branch, trunk
+
+
+class HybridSequence(keras.utils.PyDataset):
+    """
+    Batches ((X, phi(u_cols)), Y[:, cols]) for the hybrid model.  With
+    n_points set, every batch uses a fresh random subset of the u grid, so the
+    trunk learns a continuous function instead of a fixed grid; with
+    n_points=None the given columns are used (evaluation).
+    """
+
+    def __init__(self, X, Y, feats, n_points=None, batch_size=64, shuffle=True, seed=0, cols=None):
+        super().__init__(workers=1, use_multiprocessing=False)
+        self.X, self.Y, self.F = X, Y, feats
+        self.n_points, self.bs, self.shuffle = n_points, batch_size, shuffle
+        self.cols = np.arange(feats.shape[0]) if cols is None else np.asarray(cols)
+        self.rng = np.random.default_rng(seed)
+        self.order = np.arange(len(X))
+        if shuffle:
+            self.rng.shuffle(self.order)
+
+    def __len__(self):
+        return int(np.ceil(len(self.X) / self.bs))
+
+    def __getitem__(self, i):
+        rows = self.order[i * self.bs:(i + 1) * self.bs]
+        cols = (np.sort(self.rng.choice(self.cols, self.n_points, replace=False))
+                if self.n_points else self.cols)
+        f = np.broadcast_to(self.F[cols][None], (len(rows), len(cols), self.F.shape[1]))
+        y = self.Y[rows][:, cols] if self.Y is not None else np.zeros((len(rows), len(cols)), np.float32)
+        return (self.X[rows], np.ascontiguousarray(f)), y
+
+    def on_epoch_end(self):
+        if self.shuffle:
+            self.rng.shuffle(self.order)
+
+
+def predict_curves(model, X, variant: str, feats_eval=None, batch_size: int = 512) -> np.ndarray:
+    """Scaled predictions on the evaluation grid for both variants."""
+    if variant == "hybrid":
+        seq = HybridSequence(X, None, feats_eval, n_points=None, batch_size=batch_size, shuffle=False)
+        return model.predict(seq, verbose=0)
+    return model.predict(X, batch_size=batch_size, verbose=0)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Architecture registry
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -220,11 +356,18 @@ def save_architecture_config(
         arch_name += "_BN"
     if args.dropout_rate > 0:
         arch_name += f"_do{args.dropout_rate}"
+    variant = getattr(args, "variant_resolved", "conv")
+    if variant != "conv":
+        arch_name += f"_{variant}"
 
     config = {
         "timestamp":        timestamp,
         "architecture_name": arch_name,
         "architecture_type": "UpSampling1D + Conv1D",
+        "variant":          variant,
+        "hybrid_kwargs":    ({"trunk_p": args.trunk_p, "trunk_hidden": args.trunk_hidden,
+                              "fourier_freqs": args.fourier_freqs, "points_per_batch": args.points_per_batch}
+                             if variant == "hybrid" else None),
         "build_model_kwargs": {
             "input_dim":       input_dim,
             "output_dim":      output_dim,
@@ -263,6 +406,8 @@ def compute_r2(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     Computed on the *raw* (physical, log10-space) values so the metric is
     independent of the [0,1] normalization used during training.
     """
+    ok = np.isfinite(y_true) & np.isfinite(y_pred)      # masked targets (NaN) are skipped
+    y_true, y_pred = y_true[ok], y_pred[ok]
     ss_res = float(np.sum((y_true - y_pred) ** 2))
     ss_tot = float(np.sum((y_true - y_true.mean()) ** 2))
     if ss_tot == 0.0:
@@ -331,7 +476,15 @@ def save_training_details(
             "output_dim": output_dim,
         },
         "architecture": {
-            "type":                 "UpSampling1D + Conv1D",
+            "type":                 {"conv": "UpSampling1D + Conv1D",
+                                     "minimal": "UpSampling1D + Conv1D on the fixed PL-decade axis (masked loss)",
+                                     "hybrid": "Hybrid DeepONet: Dense seed + UpSampling1D/Conv1D branch, "
+                                               "MLP trunk on Fourier features of u = log10(PL/PL0)"}[
+                                        getattr(args, "variant_resolved", "conv")],
+            "axis":                 getattr(args, "axis_resolved", "qfls_window"),
+            "trunk_p":              args.trunk_p if getattr(args, "variant_resolved", "") == "hybrid" else None,
+            "trunk_hidden":         args.trunk_hidden if getattr(args, "variant_resolved", "") == "hybrid" else None,
+            "fourier_freqs":        args.fourier_freqs if getattr(args, "variant_resolved", "") == "hybrid" else None,
             "num_conv_layers":      args.num_conv_layers,
             "max_filter":           args.max_filter,
             "kernel_size":          args.kernel_size,
@@ -349,7 +502,9 @@ def save_training_details(
             "epochs_trained":    epochs_trained,
             "patience":          args.patience,
             "optimizer":         "Adam",
-            "loss":              "mse",
+            "loss":              ("masked mse (per-curve mean over valid points)"
+                                  if getattr(args, "axis_resolved", "") == "pl_decades" else "mse"),
+            "points_per_batch":  args.points_per_batch if getattr(args, "variant_resolved", "") == "hybrid" else None,
             "lr_initial":        args.lr,
             "lr_decay_rate":     args.decay_rate,
             "lr_decay_steps":    "steps_per_epoch",
@@ -405,8 +560,8 @@ def compute_confusion_matrices(
         }
     """
     # Per-sample MSE in log10(tau_diff) space
-    per_sample_mse = np.mean((y_val_raw - y_pred_raw) ** 2, axis=1)
-    per_sample_mae = np.mean(np.abs(y_val_raw - y_pred_raw), axis=1)
+    per_sample_mse = np.nanmean((y_val_raw - y_pred_raw) ** 2, axis=1)     # NaN = masked target
+    per_sample_mae = np.nanmean(np.abs(y_val_raw - y_pred_raw), axis=1)
 
     # MSE bin edges: use percentiles to avoid extreme outliers dominating bins
     mse_edges = np.percentile(
@@ -690,6 +845,7 @@ def measure_inference_sequential(
     X: np.ndarray,
     out_path: Path,
     n_warmup: int = 5,
+    predict=None,
 ) -> None:
     """
     Time the model by predicting each sample individually (batch=1).
@@ -704,16 +860,17 @@ def measure_inference_sequential(
         cumulative_time_s       – cumulative wall time [s]
     """
     n = len(X)
+    predict = predict or (lambda x, bs: model.predict(x, batch_size=bs, verbose=0))
 
     # warmup with full batch to compile TF graph
     for _ in range(n_warmup):
-        model.predict(X, batch_size=n, verbose=0)
+        predict(X, n)
 
     per_sample = np.empty(n, dtype=np.float64)
     for i in range(n):
         x  = X[i : i + 1]
         t0 = time.perf_counter()
-        model.predict(x, batch_size=1, verbose=0)
+        predict(x, 1)
         per_sample[i] = time.perf_counter() - t0
 
     cumulative = np.cumsum(per_sample)
@@ -733,6 +890,7 @@ def measure_inference_batch(
     X: np.ndarray,
     out_path: Path,
     n_warmup: int = 5,
+    predict=None,
 ) -> None:
     """
     Time the model predicting the entire parameter set as one batch.
@@ -749,12 +907,13 @@ def measure_inference_batch(
         cumulative_time_s – cumulative wall time [s]
     """
     n = len(X)
+    predict = predict or (lambda x, bs: model.predict(x, batch_size=bs, verbose=0))
 
     for _ in range(n_warmup):
-        model.predict(X, batch_size=n, verbose=0)
+        predict(X, n)
 
     t0         = time.perf_counter()
-    model.predict(X, batch_size=n, verbose=0)
+    predict(X, n)
     total_time = time.perf_counter() - t0
 
     df = pd.DataFrame({
@@ -813,6 +972,41 @@ def train(args: argparse.Namespace) -> None:
     )
     output_scaler: MinMaxScaler = joblib.load(output_scaler_path)
 
+    # ── axis of the training data and network variant ────────────────────────
+    axis = d.get("axis", "qfls_window")
+    axis = axis.decode() if isinstance(axis, bytes) else str(axis)
+    variant = {"conv": "conv", "minimal": "conv", "hybrid": "hybrid"}[args.variant]
+    if axis == "pl_decades" and variant == "conv":
+        variant = "minimal"                      # same network, fixed PL-decade grid, masked loss
+    if axis != "pl_decades" and variant == "hybrid":
+        raise SystemExit("--variant hybrid needs a training HDF5 with axis = pl_decades "
+                         "(prepare_training_data.py --axis pl_decades)")
+    args.variant_resolved, args.axis_resolved = variant, axis
+    # the output scaler is global (all grid points share min/max) -> invertible for any width
+    y_lo, y_hi = float(output_scaler.data_min_[0]), float(output_scaler.data_max_[0])
+
+    def to_raw(y_scaled):
+        return np.asarray(y_scaled, np.float64) * (y_hi - y_lo) + y_lo
+
+    feats_full = feats_eval = eval_cols = u_grid = None
+    decades = None
+    if axis == "pl_decades":
+        u_grid = np.asarray(d["u_grid"], np.float64)
+        decades = float(d["decades"])
+        eval_cols = np.arange(0, len(u_grid), 2)     # 256 points incl. both ends (511-point grid)
+        y_train_full, y_val_full = y_train, y_val     # the hybrid trains on random subsets of the full grid
+        y_train, y_val, y_test = y_train[:, eval_cols], y_val[:, eval_cols], y_test[:, eval_cols]
+        y_train_raw, y_val_raw, y_test_raw = (y_train_raw[:, eval_cols], y_val_raw[:, eval_cols],
+                                              y_test_raw[:, eval_cols])
+        if variant == "hybrid":
+            feats_full = u_features(u_grid, decades, args.fourier_freqs)
+            feats_eval = feats_full[eval_cols]
+        print(f"  Axis      : PL decades, {len(u_grid)}-point grid, evaluation on {len(eval_cols)} points | "
+              f"masked targets {100 * np.mean(~np.isfinite(y_train)):.3f} % | variant {variant}")
+
+    def predict_scaled(X):
+        return predict_curves(model, X, variant, feats_eval)
+
     # Decode param names (stored as byte strings)
     raw_names = d["param_names"]
     param_names = (
@@ -839,18 +1033,35 @@ def train(args: argparse.Namespace) -> None:
     print(f"  Output dir: {out_dir}")
 
     # ── build model ──────────────────────────────────────────────────────────
-    model = build_model(
-        input_dim       = INPUT_DIM,
-        output_dim      = OUTPUT_DIM,
-        num_conv_layers = args.num_conv_layers,
-        kernel_size     = args.kernel_size,
-        max_filter      = args.max_filter,
-        dropout_rate    = args.dropout_rate,
-        use_batch_norm  = args.batch_norm,
-        lr              = args.lr,
-        decay_steps     = STEPS,
-        decay_rate      = args.decay_rate,
-    )
+    branch_model = trunk_model = None
+    if variant == "hybrid":
+        model, branch_model, trunk_model = build_hybrid_model(
+            input_dim       = INPUT_DIM,
+            n_feat          = feats_full.shape[1],
+            num_conv_layers = args.num_conv_layers,
+            kernel_size     = args.kernel_size,
+            max_filter      = args.max_filter,
+            map_size        = max(1, int(round(OUTPUT_DIM / (2 ** args.num_conv_layers)))),
+            p               = args.trunk_p,
+            trunk_hidden    = args.trunk_hidden,
+            lr              = args.lr,
+        )
+    else:
+        model = build_model(
+            input_dim       = INPUT_DIM,
+            output_dim      = OUTPUT_DIM,
+            num_conv_layers = args.num_conv_layers,
+            kernel_size     = args.kernel_size,
+            max_filter      = args.max_filter,
+            dropout_rate    = args.dropout_rate,
+            use_batch_norm  = args.batch_norm,
+            lr              = args.lr,
+            decay_steps     = STEPS,
+            decay_rate      = args.decay_rate,
+        )
+        if variant == "minimal":                 # masked targets on the PL-decade grid
+            model.compile(optimizer=keras.optimizers.Adam(learning_rate=args.lr),
+                          loss=masked_mse, metrics=[masked_mse, masked_mae])
     model.summary()
 
     # ── save architecture config ─────────────────────────────────────────────
@@ -892,27 +1103,32 @@ def train(args: argparse.Namespace) -> None:
         callbacks.append(WandbMetricsLogger(log_freq="epoch"))
 
     # ── train ────────────────────────────────────────────────────────────────
-    history = model.fit(
-        X_train, y_train,
-        batch_size      = args.batch_size,
-        epochs          = args.epochs,
-        shuffle         = True,
-        validation_data = (X_val, y_val),
-        callbacks       = callbacks,
-        verbose         = 1,
-    )
+    if variant == "hybrid":
+        history = model.fit(
+            HybridSequence(X_train, y_train_full, feats_full, n_points=args.points_per_batch,
+                           batch_size=args.batch_size, shuffle=True, seed=0),
+            epochs          = args.epochs,
+            validation_data = HybridSequence(X_val, y_val_full, feats_full, n_points=None,
+                                             batch_size=1024, shuffle=False, cols=eval_cols),
+            callbacks       = callbacks,
+            verbose         = 1,
+        )
+    else:
+        history = model.fit(
+            X_train, y_train,
+            batch_size      = args.batch_size,
+            epochs          = args.epochs,
+            shuffle         = True,
+            validation_data = (X_val, y_val),
+            callbacks       = callbacks,
+            verbose         = 1,
+        )
     epochs_trained = len(history.history["loss"])
 
     # ── confusion matrices after main training (pre-fine-tune) ───────────────
-    _y_train_pred_main = output_scaler.inverse_transform(
-        model.predict(X_train, batch_size=512, verbose=0)
-    )
-    _y_val_pred_main   = output_scaler.inverse_transform(
-        model.predict(X_val,   batch_size=512, verbose=0)
-    )
-    _y_test_pred_main  = output_scaler.inverse_transform(
-        model.predict(X_test,  batch_size=512, verbose=0)
-    )
+    _y_train_pred_main = to_raw(predict_scaled(X_train))
+    _y_val_pred_main   = to_raw(predict_scaled(X_val))
+    _y_test_pred_main  = to_raw(predict_scaled(X_test))
     _confusion_dir = out_dir / "confusion_matrices"
     for _split_label, _X_raw, _y_raw, _y_pred_raw in [
         ("train_main", X_train_raw, y_train_raw, _y_train_pred_main),
@@ -976,21 +1192,28 @@ def train(args: argparse.Namespace) -> None:
                 from wandb.integration.keras import WandbMetricsLogger
                 ft_callbacks.append(WandbMetricsLogger(log_freq="epoch"))
 
-            ft_val_data = (
-                (X_val[ft_mask_val], y_val[ft_mask_val])
-                if n_ft_val >= 4
-                else (X_val, y_val)        # fall back to full val set
-            )
-
-            model.fit(
-                X_train[ft_mask_tr], y_train[ft_mask_tr],
-                batch_size      = max(16, args.batch_size // 2),
-                epochs          = args.finetune_epochs,
-                shuffle         = True,
-                validation_data = ft_val_data,
-                callbacks       = ft_callbacks,
-                verbose         = 1,
-            )
+            vm = ft_mask_val if n_ft_val >= 4 else np.ones(len(X_val), bool)   # else full val set
+            if variant == "hybrid":
+                model.fit(
+                    HybridSequence(X_train[ft_mask_tr], y_train_full[ft_mask_tr], feats_full,
+                                   n_points=args.points_per_batch,
+                                   batch_size=max(16, args.batch_size // 2), shuffle=True, seed=1),
+                    epochs          = args.finetune_epochs,
+                    validation_data = HybridSequence(X_val[vm], y_val_full[vm], feats_full, n_points=None,
+                                                     batch_size=1024, shuffle=False, cols=eval_cols),
+                    callbacks       = ft_callbacks,
+                    verbose         = 1,
+                )
+            else:
+                model.fit(
+                    X_train[ft_mask_tr], y_train[ft_mask_tr],
+                    batch_size      = max(16, args.batch_size // 2),
+                    epochs          = args.finetune_epochs,
+                    shuffle         = True,
+                    validation_data = (X_val[vm], y_val[vm]),
+                    callbacks       = ft_callbacks,
+                    verbose         = 1,
+                )
             print("Fine-tuning complete.")
     elif et_col is None:
         print("\nFine-tuning skipped: no DeltaEtrap parameter found in param_names.")
@@ -1020,22 +1243,33 @@ def train(args: argparse.Namespace) -> None:
     model_path = out_dir / "model.keras"
     model.save(model_path)
     print(f"\nModel saved: {model_path}")
+    if variant == "hybrid":                      # sub-models for the inference (trunk evaluated once per data set)
+        branch_model.save(out_dir / "branch.keras")
+        trunk_model.save(out_dir / "trunk.keras")
+        print(f"Branch / trunk saved: {out_dir / 'branch.keras'}, {out_dir / 'trunk.keras'}")
 
     # ── evaluate on all splits ────────────────────────────────────────────────
-    test_loss, test_mse, test_mae = model.evaluate(X_test,  y_test,  verbose=0)
-    val_loss,  val_mse,  val_mae  = model.evaluate(X_val,   y_val,   verbose=0)
-    train_loss,train_mse,train_mae= model.evaluate(X_train, y_train, verbose=0)
+    # losses from the predictions: per-curve mean over the valid points, then mean over
+    # curves (equals model.evaluate for unmasked data; works for both variants)
+    def _scaled_metrics(y_true_s, y_pred_s):
+        err = y_pred_s - y_true_s
+        mse = float(np.mean(np.nanmean(err ** 2, axis=1)))
+        mae = float(np.mean(np.nanmean(np.abs(err), axis=1)))
+        return mse, mse, mae
+
+    y_train_pred_s = predict_scaled(X_train)
+    y_val_pred_s   = predict_scaled(X_val)
+    y_test_pred_s  = predict_scaled(X_test)
+    train_loss, train_mse, train_mae = _scaled_metrics(y_train, y_train_pred_s)
+    val_loss,   val_mse,   val_mae   = _scaled_metrics(y_val,   y_val_pred_s)
+    test_loss,  test_mse,  test_mae  = _scaled_metrics(y_test,  y_test_pred_s)
 
     # R² in raw (log10 tau_diff) space
-    y_train_pred_raw = output_scaler.inverse_transform(
-        model.predict(X_train, batch_size=512, verbose=0)
-    )
-    y_val_pred_raw   = output_scaler.inverse_transform(
-        model.predict(X_val,   batch_size=512, verbose=0)
-    )
-    y_test_pred_raw  = output_scaler.inverse_transform(
-        model.predict(X_test,  batch_size=512, verbose=0)
-    )
+    y_train_pred_raw = to_raw(y_train_pred_s)
+    y_val_pred_raw   = to_raw(y_val_pred_s)
+    y_test_pred_raw  = to_raw(y_test_pred_s)
+    # per-curve RMSE in decades of tau_diff (what the likelihood sees)
+    rmse_curve_test = np.sqrt(np.nanmean((y_test_pred_raw - y_test_raw) ** 2, axis=1))
 
     r2_train = compute_r2(y_train_raw, y_train_pred_raw)
     r2_val   = compute_r2(y_val_raw,   y_val_pred_raw)
@@ -1087,6 +1321,9 @@ def train(args: argparse.Namespace) -> None:
         "test_mse":      float(test_mse),
         "test_mae":      float(test_mae),
         "r2_test":       float(r2_test),
+        "test_curve_rmse_log10tau_median": float(np.median(rmse_curve_test)),
+        "test_curve_rmse_log10tau_p95":    float(np.percentile(rmse_curve_test, 95)),
+        "test_curve_rmse_log10tau_max":    float(np.max(rmse_curve_test)),
     }
     save_training_details(
         path          = out_dir / "training_details.json",
@@ -1106,6 +1343,8 @@ def train(args: argparse.Namespace) -> None:
 
     # ── plot sample test curves ───────────────────────────────────────────────
     qfls_test_arr = d.get("qfls_test")
+    if qfls_test_arr is not None and eval_cols is not None:
+        qfls_test_arr = qfls_test_arr[:, eval_cols]          # absolute QFLS, NaN where masked
     if qfls_test_arr is not None:
         plot_test_curves(
             y_true_raw = y_test_raw,
@@ -1121,8 +1360,30 @@ def train(args: argparse.Namespace) -> None:
     timing_batch_path = out_dir / "nn_inference_times_batch.csv"
     n_timing = min(200, len(X_test))
     print(f"\nMeasuring inference times on {n_timing} test samples …")
-    measure_inference_sequential(model, X_test[:n_timing], timing_seq_path)
-    measure_inference_batch(model, X_test[:n_timing], timing_batch_path)
+    _pred = ((lambda x, bs: predict_curves(model, x, variant, feats_eval, batch_size=max(1, bs)))
+             if variant == "hybrid" else None)
+    measure_inference_sequential(model, X_test[:n_timing], timing_seq_path, predict=_pred)
+    measure_inference_batch(model, X_test[:n_timing], timing_batch_path, predict=_pred)
+
+    # ── metadata for the inference (PL-decade networks) ──────────────────────
+    if axis == "pl_decades":
+        meta = {
+            "axis": axis, "variant": variant, "decades": decades,
+            "u_grid_full": u_grid.tolist(), "eval_cols": eval_cols.tolist(),
+            "u_eval": u_grid[eval_cols].tolist(),
+            "fourier_freqs": args.fourier_freqs if variant == "hybrid" else None,
+            "u_features": "u_n=(u+decades/2)/(decades/2); [u_n, sin(2^k pi u_n), cos(2^k pi u_n)], k=0..fourier_freqs-1",
+            "y_scaled_to_log10_tau": {"min": y_lo, "max": y_hi},
+            "param_names": param_names,
+            "param_scaler_path": str(d["param_scaler_path"]),
+            "output_scaler_path": str(output_scaler_path),
+            "training_hdf5": str(h5_path.resolve()),
+            "files": {"model": "model.keras",
+                      "branch": "branch.keras" if variant == "hybrid" else None,
+                      "trunk": "trunk.keras" if variant == "hybrid" else None},
+        }
+        (out_dir / "surrogate_meta.json").write_text(json.dumps(meta, indent=2))
+        print(f"  Surrogate metadata saved: {out_dir / 'surrogate_meta.json'}")
 
     # ── final summary ────────────────────────────────────────────────────────
     print(f"\nBest val loss      : {best_val_loss:.6f}")
@@ -1164,6 +1425,16 @@ def parse_args() -> argparse.Namespace:
                    help="Dropout rate applied after each conv layer (0 = disabled)")
     p.add_argument("--batch-norm",       action="store_true", default=False,
                    help="Enable BatchNormalization layers")
+
+    # ── variant (PL-decade networks from 10/2026) ────────────────────────────
+    p.add_argument("--variant", choices=["conv", "minimal", "hybrid"], default="conv",
+                   help="conv: original network (on a pl_decades HDF5 this is 'minimal': fixed grid, "
+                        "masked loss); hybrid: conv branch + MLP trunk on Fourier features of u")
+    p.add_argument("--trunk-p",          type=int, default=128, help="hybrid: number of basis functions p")
+    p.add_argument("--trunk-hidden",     type=int, default=128, help="hybrid: width of the 2 trunk hidden layers")
+    p.add_argument("--fourier-freqs",    type=int, default=8,   help="hybrid: Fourier frequencies 2^k pi, k < n")
+    p.add_argument("--points-per-batch", type=int, default=256,
+                   help="hybrid: random u points per training batch (from the full grid)")
 
     # ── optimizer ─────────────────────────────────────────────────────────────
     p.add_argument("--lr",                 type=float, default=1e-3)

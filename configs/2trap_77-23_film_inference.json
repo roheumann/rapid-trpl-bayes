@@ -1,0 +1,190 @@
+{
+  "_comment": "77:23 film (PI-treated), 2 traps, joint Bayesian inference (tr-PL + ss-PL) with tempered SMC. As configs/2trap_77-23_film_fit.json except the sigmas: sigma_trPL = sqrt(sigma_model^2 + sigma_nn^2) = sqrt(0.3528^2 + 0.1249^2) = 0.3743 dec; sigma_model = RMSE of log10 tau_diff between the drift-diffusion model and the 0D rate equations at the best fit of configs/2trap_77-23_film_fit.json (model-error-analysis/sigma_model.py, alpha(514 nm) = 61624.1675 /cm, d = 1000 nm, mu = 1 cm^2/Vs); sigma_ssPL = 0.0020214 eV. The sliced corner (scripts/paper_slices.py) is centred on the best fit of configs/2trap_77-23_film_fit.json.",
+  "run_name": "2trap_77-23_film",
+  "output_dir": "results/2trap_77-23_film",
+  "mode": "joint",
+  "physics": {
+    "Eg_eV": 1.67,
+    "npulse_cm3": 8.83848398364294e+16,
+    "T_K": 300,
+    "thickness_nm": 1000,
+    "npulse_info": {
+      "fluence_uJ_cm2": 4.46,
+      "laser_nm": 514,
+      "E_photon_eV": 2.4121439299610894,
+      "npulse_incident_cm3": 1.1540410224419754e+17,
+      "absorptance_514nm": 0.7658726,
+      "note": "absorbed density = fluence / E_ph / d x A(514 nm)"
+    }
+  },
+  "nn": {
+    "dir": "networks/2trap",
+    "stem": "2trap_training"
+  },
+  "prior": {
+    "order_traps": true,
+    "photodoping_traps": [],
+    "bounds_override": {
+      "Et_rel_1": [
+        0.5,
+        0.98
+      ],
+      "Et_rel_2": [
+        0.5,
+        0.98
+      ]
+    },
+    "fixed": {
+      "log10_krad": -10.473906375261238
+    }
+  },
+  "trpl": {
+    "path": "data/77-23_film/trpl_transient.dat",
+    "format": "raw",
+    "preprocess": true,
+    "spline_knots": 5,
+    "spline_points": 256,
+    "qfls_window": null,
+    "sigma": 0.3528147927254598,
+    "interp_space": "log10",
+    "skiprows": "auto",
+    "points": "spline",
+    "sigma_source": "sigma_model at the best fit of configs/2trap_77-23_film_fit.json (sigma_nn of networks/2trap is added by sigma_rule model_plus_nn)"
+  },
+  "sspl": {
+    "use": true,
+    "path": "data/77-23_film/sspl_suns_qfls.dat",
+    "format": "suns_qfls_dat",
+    "mode": "qfls_vs_suns",
+    "plqy_in_percent": false,
+    "absorptance": 0.85,
+    "sigma": 0.0020213839939686716,
+    "n_sweep": [
+      100000000.0,
+      null,
+      160
+    ],
+    "voc_rad_V": 1.362,
+    "sigma_info": "same value as the 85:15 film: 0.033958 is the paper's sigma for log10 PLQY; converted to QFLS: 0.033958 x kT ln10 (kT = 0.025852 eV) = 0.0020214 eV (QFLS = Voc,rad + kT ln suns + kT ln PLQY)",
+    "offset_sigma_eV": null
+  },
+  "sigma_eff": false,
+  "start_point": {
+    "traps": [
+      {
+        "trap_type": "deep",
+        "qfls_window": [
+          1.07,
+          1.21
+        ],
+        "Ntrap": 1000000000000.0,
+        "taun_s": "first_tau_diff"
+      },
+      {
+        "trap_type": "shallow",
+        "qfls_window": [
+          1.37,
+          1.46
+        ],
+        "Et_eV": 1.52,
+        "photodoping": true,
+        "Nt_n1_factor": 10,
+        "krad_cm3s": "prior"
+      }
+    ]
+  },
+  "fit": {
+    "sigma0": 1.0,
+    "max_evals": 20000,
+    "tolfun": 1e-07,
+    "tolx": 1e-06,
+    "n_extra_sobol_starts": 31,
+    "n_polish": 3,
+    "ode_refine": true,
+    "ode_max_nfev": 60,
+    "n_jobs": 16
+  },
+  "nuts": {
+    "n_chains": 32,
+    "n_warmup": 1000,
+    "n_draws": 2000,
+    "metric": "dense",
+    "target_accept": 0.95,
+    "max_tree_depth": 10,
+    "init": "dispersed",
+    "seed": 0,
+    "run": false
+  },
+  "emcee": {
+    "run": false,
+    "n_walkers": 72,
+    "n_steps": 60000,
+    "moves": "stretch",
+    "burn_frac": 0.5,
+    "seed": 1
+  },
+  "sensitivity": {
+    "run": false,
+    "n_sobol_starts": 64,
+    "max_evals": 20000,
+    "n_chains_per_group": 16,
+    "n_warmup": 1000,
+    "n_draws": 1000,
+    "tol_neg_log_lik": 0.5
+  },
+  "profile": {
+    "run": false,
+    "param": "log10_Nt_2",
+    "n_grid": 40,
+    "n_random": 8,
+    "n_sweeps": 2,
+    "modes": [
+      "trpl",
+      "joint"
+    ],
+    "ode_check_endpoints": true
+  },
+  "ode": {
+    "check_best_fit": true,
+    "run_ode_fit": false,
+    "n_jobs": 16
+  },
+  "true_params": null,
+  "timing": {
+    "_comment": "timeit repeats (mean \u00b1 SD in 11_T8_timing_table.csv): 'repeats' for the short steps, 'repeats_long' for NUTS, emcee, grid and the ODE-only CMA-ES (each repeat is a full run)",
+    "repeats": 5,
+    "repeats_long": 3
+  },
+  "hardware": {
+    "cuda_device": "0",
+    "batch_size": 8192
+  },
+  "grid": {
+    "run": false,
+    "points_per_axis": 7,
+    "range": "window",
+    "halfwidth_log10": 2.0,
+    "halfwidth_Et_eV": 0.1
+  },
+  "t7_ode_reweight": {
+    "run": false,
+    "n_samples": 1000
+  },
+  "t9_trap_dynamics": {
+    "run": false,
+    "n_samples": 500,
+    "rel_tol": 0.001
+  },
+  "sigma_rule": "model_plus_nn",
+  "sigma_model_info": {
+    "method": "RMSE(log10 tau_diff, drift-diffusion (model-error-analysis/dd_model.py) - 0D rate equations) at the measured QFLS points",
+    "script": "model-error-analysis/sigma_model.py",
+    "best_fit": "results/2trap_77-23_film/2trap_77-23_film_fit_joint/6_best_fit.json",
+    "alpha_514_cm": 61624.1675,
+    "mu_cm2Vs": 1.0,
+    "thickness_nm": 1000,
+    "sigma_model": 0.3528147927254598,
+    "sigma_model_alpha_half": 0.18096806721816558,
+    "sigma_model_alpha_double": 0.5460828706229123
+  }
+}

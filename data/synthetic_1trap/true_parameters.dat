@@ -1,0 +1,12 @@
+# ground truth of the synthetic 1-trap case (1-trap fit of the measured 85:15 film)
+# written 2026-10-23T15:19:39
+# bandgap Eg = 1.63 eV, T = 300.0 K, traps = 1
+# theta = log10(value) for k_rad, N_t, tau; theta = E_t/Eg for E_t.
+# +-1sd: Laplace (curve_fit) standard deviation — in decades (log10) for k_rad, N_t, tau and in eV for E_t.
+#
+# parameter             value  unit            theta          +-1sd  note
+  krad           4.793000e-11  cm^3/s     -10.319393                 fixed
+  Et_1               1.464999  eV           0.898772                 
+  Nt_1           5.736159e+16  cm^-3       16.758621                 
+  tau_n_1        4.973041e-09  s           -8.303378                 
+  tau_p_1        7.765284e-08  s           -7.109843                 

@@ -39,8 +39,8 @@ Raw (unscaled) splits – log10-space parameters and log10(tau_diff):
     y_train_raw, y_val_raw, y_test_raw   – (n, QFLS_STEPS)   float32  [log10 tau_diff]
 
 Interpolated curves (all on the per-sample QFLS grid):
-    time_train, time_val, time_test      – (n, QFLS_STEPS)   float32  [s]
-    pl_train,   pl_val,   pl_test        – (n, QFLS_STEPS)   float32  [a.u.]
+    time_train, time_val, time_test      – (n, QFLS_STEPS)   float32  [log10(t / ns), t shifted by tmin]
+    pl_train,   pl_val,   pl_test        – (n, QFLS_STEPS)   float32  [log10(PL / PL_max)]
     qfls_train, qfls_val, qfls_test      – (n, QFLS_STEPS)   float32  [eV]
 
 Scaled splits – ready for model training:
@@ -49,6 +49,7 @@ Scaled splits – ready for model training:
 """
 
 import sys
+import json
 import numpy as np
 import h5py
 import joblib
@@ -131,12 +132,23 @@ def main(sim_path: Path, out_path: Path) -> None:
             removed += 1; rm_solve_time += 1
             continue
 
+        # remove samples whose raw solver output is empty (e.g. an ODE run
+        # that event-stopped before/at its first step) before doing anything
+        # else with them — np.isfinite/np.max on a zero-size array either
+        # trivially pass the "too invalid" ratio check below (0 invalid out
+        # of 0 points) or crash outright.
+        if tau_i.size == 0:
+            removed += 1; rm_too_invalid += 1
+            continue
+
         # count invalid tau values
         finite_mask = np.isfinite(tau_i)
         n_invalid   = (~finite_mask).sum()
 
-        # remove whole sample if more than half invalid
-        if n_invalid > QFLS_STEPS / 2:
+        # remove whole sample if more than half invalid — compare against
+        # this sample's own raw length, not the QFLS_STEPS target grid size
+        # (the raw, pre-interpolation length varies per sample).
+        if n_invalid > len(tau_i) / 2:
             removed += 1; rm_too_invalid += 1
             continue
 
@@ -318,18 +330,174 @@ def main(sim_path: Path, out_path: Path) -> None:
     print("Done.")
 
 
-if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print(__doc__)
-        sys.exit(1)
+# ─────────────────────────────────────────────────────────────────────────────
+# PL-decade axis (networks from 10/2026)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Every curve is put on ONE fixed axis u = log10(PL / PL(t=0)) from -DECADES to 0.
+# The axis does not depend on the parameters (n_pulse, p0, Eg), so the network
+# output, the measured data and the likelihood share it without any QFLS
+# calibration; absolute QFLS = QFLS(0) + kT ln10 * u is stored for plots only.
+# Grid points that a curve does not cover, or that lie in a stretch where the
+# solver returned no valid tau (points removed there), are NaN = masked in the
+# loss.  Nothing is filled or extrapolated.
 
-    sim_path = Path(sys.argv[1])
+def curve_on_u_grid(u, tau_log, extra, u_grid, decades):
+    """
+    One simulated curve on the fixed u grid.
+
+    u       : log10(PL/PL0) at the solver output points (decreasing in time)
+    tau_log : log10 tau_diff at the same points (non-finite = invalid)
+    extra   : dict name -> array at the same points (time, qfls), interpolated alike
+    Returns (y, extra_on_grid, status); status 'ok' | 'short' | 'few'.
+    """
+    if not np.isfinite(u).any() or np.nanmin(u) > -decades:
+        return None, None, "short"
+    # strictly decreasing u along the curve (points where PL rises are removed
+    # like invalid tau), valid tau only
+    valid = np.isfinite(u) & np.isfinite(tau_log)
+    u_valid = np.where(valid, u, np.inf)
+    prev_min = np.concatenate([[np.inf], np.minimum.accumulate(u_valid)[:-1]])
+    keep = np.flatnonzero(valid & (u < prev_min))   # valid points that set a new minimum of u
+    if keep.size < 4:
+        return None, None, "few"
+    uk = u[keep][::-1]                          # increasing
+    yk = tau_log[keep][::-1]
+    y = np.full(len(u_grid), np.nan)
+    inside = (u_grid >= uk[0]) & (u_grid <= uk[-1])
+    y[inside] = PchipInterpolator(uk, yk)(u_grid[inside])
+    # mask grid points inside stretches where solver points were removed
+    removed = np.diff(keep) > 1                 # between keep[j] and keep[j+1] (time order)
+    for j in np.flatnonzero(removed):
+        hi, lo = u[keep[j]], u[keep[j + 1]]     # u decreases in time
+        y[(u_grid > lo) & (u_grid < hi)] = np.nan
+    out = {}
+    for name, arr in extra.items():
+        a = np.full(len(u_grid), np.nan)
+        a[inside] = PchipInterpolator(uk, arr[keep][::-1])(u_grid[inside])
+        a[~np.isfinite(y)] = np.nan
+        out[name] = a
+    if np.isfinite(y).sum() < 16:
+        return None, None, "few"
+    return y, out, "ok"
+
+
+def main_pl_decades(sim_path: Path, out_path: Path, n_grid: int = 511) -> None:
+    print(f"Source : {sim_path.resolve()}")
+    print(f"Output : {out_path.resolve()}  (axis: PL decades, {n_grid} grid points)")
+    with h5py.File(sim_path, "r") as hf:
+        par_mat    = hf["par_mat_ln"][:]
+        time       = hf["time"][:]
+        time_units = hf["time"].attrs.get("units", "log10(ns)")
+        pl         = hf["pl"][:]
+        qfls       = hf["qfls"][:]
+        tau_diff   = hf["tau_diff"][:]
+        lb, ub     = hf["lb"][:], hf["ub"][:]
+        constants  = hf["constants"][()]
+        solve_time = hf["solve_time"][:]
+    if isinstance(time_units, bytes):
+        time_units = time_units.decode()
+    n_samples, n_params = par_mat.shape
+    N_TRAPS = (n_params - 3) // 4
+    param_names = make_param_names(N_TRAPS)
+    decades = float(constants["PL_DECAY_MAGNITUDE"][()])
+    u_grid = np.linspace(-decades, 0.0, n_grid)          # increasing, like QFLS
+    print(f"N_TRAPS {N_TRAPS} | n_samples {n_samples} | time units: {time_units}")
+
+    keep_idx, Y, T, Q, umin, q0 = [], [], [], [], [], []
+    counts = {"solve_time<=0": 0, "empty": 0, "short": 0, "few": 0}
+    for i in range(n_samples):
+        if not np.all(np.isfinite(par_mat[i])) or solve_time[i] <= 0:
+            counts["solve_time<=0"] += 1
+            continue
+        if tau_diff[i].size < 2:
+            counts["empty"] += 1
+            continue
+        pl_i = pl[i]
+        u = pl_i - pl_i[0]                               # PL0 = PL at t = 0 (first output point)
+        t_i = time[i] if time_units.startswith("ns") else 10.0 ** time[i]   # linear ns
+        y, ex, status = curve_on_u_grid(u, tau_diff[i], {"time": t_i, "qfls": qfls[i]}, u_grid, decades)
+        if status != "ok":
+            counts[status] += 1
+            continue
+        keep_idx.append(i); Y.append(y); T.append(ex["time"]); Q.append(ex["qfls"])
+        umin.append(np.nanmin(u)); q0.append(qfls[i][0])
+        if (i + 1) % 50000 == 0:
+            print(f"  {i + 1}/{n_samples} processed", flush=True)
+
+    par = par_mat[keep_idx].astype(np.float32)
+    Y = np.asarray(Y, np.float32); T = np.asarray(T, np.float32); Q = np.asarray(Q, np.float32)
+    umin = np.asarray(umin, np.float32); q0 = np.asarray(q0, np.float32)
+    n_valid = len(par)
+    print(f"\nRemoved {n_samples - n_valid}/{n_samples}: {counts}")
+    print(f"Valid samples: {n_valid} | masked grid points: {100 * np.mean(~np.isfinite(Y)):.3f} %")
+
+    indices = np.arange(n_valid)
+    idx_tr, idx_te = train_test_split(indices, test_size=0.10, shuffle=True, random_state=42)
+    idx_tr, idx_va = train_test_split(idx_tr, test_size=0.10 / 0.90, shuffle=True, random_state=42)
+
+    param_scaler = StandardScaler().fit(par[idx_tr])
+    y_min, y_max = float(np.nanmin(Y[idx_tr])), float(np.nanmax(Y[idx_tr]))
+    output_scaler = MinMaxScaler(feature_range=(0, 1)).fit(
+        np.array([[y_min] * n_grid, [y_max] * n_grid], dtype=np.float64))
+    print(f"y range (log10 tau): [{y_min:.3f}, {y_max:.3f}]")
+
+    param_scaler_path  = out_path.parent / (out_path.stem + "_param_scaler.joblib")
+    output_scaler_path = out_path.parent / (out_path.stem + "_output_scaler.joblib")
+    joblib.dump(param_scaler, param_scaler_path)
+    joblib.dump(output_scaler, output_scaler_path)
+
+    with h5py.File(out_path, "w") as hf:
+        hf.create_dataset("source_file",        data=str(sim_path.resolve()).encode())
+        hf.create_dataset("axis",               data=b"pl_decades")
+        hf.create_dataset("u_grid",             data=u_grid)
+        hf.create_dataset("decades",            data=decades)
+        hf.create_dataset("y_min",              data=y_min)
+        hf.create_dataset("y_max",              data=y_max)
+        hf.create_dataset("N_TRAPS",            data=np.array(N_TRAPS))
+        hf.create_dataset("lb",                 data=lb)
+        hf.create_dataset("ub",                 data=ub)
+        hf.create_dataset("constants",          data=constants)
+        hf.create_dataset("param_names",        data=np.array(param_names, dtype="S64"))
+        hf.create_dataset("param_scaler_path",  data=str(param_scaler_path.resolve()).encode())
+        hf.create_dataset("output_scaler_path", data=str(output_scaler_path.resolve()).encode())
+        hf.create_dataset("removed_counts",     data=json.dumps(counts).encode())
+        for split, idx in (("train", idx_tr), ("val", idx_va), ("test", idx_te)):
+            hf.create_dataset(f"X_{split}_raw", data=par[idx])
+            hf.create_dataset(f"X_{split}",     data=param_scaler.transform(par[idx]).astype(np.float32))
+            hf.create_dataset(f"y_{split}_raw", data=Y[idx])                       # NaN = masked
+            hf.create_dataset(f"y_{split}",     data=((Y[idx] - y_min) / (y_max - y_min)).astype(np.float32))
+            hf.create_dataset(f"time_{split}",  data=T[idx])                       # linear ns
+            hf.create_dataset(f"qfls_{split}",  data=Q[idx])                       # eV (absolute, incl. p0)
+            hf.create_dataset(f"u_min_{split}", data=umin[idx])
+            hf.create_dataset(f"qfls0_{split}", data=q0[idx])
+            hf.create_dataset(f"sample_index_{split}", data=np.asarray(keep_idx)[idx])
+    print(f"\nTraining HDF5 saved: {out_path}")
+    print("Done.")
+
+
+if __name__ == "__main__":
+    import argparse
+    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[1] if __doc__ else None)
+    ap.add_argument("sim_hdf5")
+    ap.add_argument("out_hdf5", nargs="?", default=None)
+    ap.add_argument("--axis", choices=["qfls_window", "pl_decades"], default="qfls_window",
+                    help="qfls_window: per-curve QFLS window (networks before 10/2026); "
+                         "pl_decades: fixed axis log10(PL/PL0) with mask")
+    ap.add_argument("--grid-points", type=int, default=511,
+                    help="points of the fixed u grid (pl_decades); 511 -> every 2nd point gives 256 incl. both ends")
+    a = ap.parse_args()
+
+    sim_path = Path(a.sim_hdf5)
     if not sim_path.exists():
         print(f"Error: file not found: {sim_path}")
         sys.exit(1)
 
     out_path = (
-        Path(sys.argv[2]) if len(sys.argv) >= 3
+        Path(a.out_hdf5) if a.out_hdf5
         else sim_path.parent / (sim_path.stem + "_training.hdf5")
     )
-    main(sim_path, out_path)
+    if a.axis == "pl_decades":
+        main_pl_decades(sim_path, out_path, n_grid=a.grid_points)
+    else:
+        main(sim_path, out_path)

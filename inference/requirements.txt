@@ -1,0 +1,40 @@
+# Full-dimensional Bayesian inference (inference/ package, main.ipynb)
+# Install with:  pip install -r inference/requirements.txt
+# Versions below are the ones the package was developed and tested with
+# (TFP 0.25 is officially tested with TF 2.18 but works with TF 2.21;
+#  do NOT set TF_USE_LEGACY_KERAS, so .keras models load with Keras 3).
+
+# ── Deep learning / sampling ─────────────────────────────────────────────────
+tensorflow==2.21.0
+keras==3.13.2
+tensorflow-probability==0.25.0   # NUTS, L-BFGS
+tf_keras==2.21.0                 # required by tensorflow-probability[tf]
+emcee==3.1.6                     # affine-invariant ensemble sampler (cross-check)
+arviz==1.3.0                     # R-hat, ESS, summaries (arviz 1.x API)
+cma==4.4.4                       # CMA-ES (pycma)
+
+# ── Numerics / data ──────────────────────────────────────────────────────────
+numpy
+scipy
+pandas
+scikit-learn                     # scalers stored with the networks
+joblib
+h5py
+numba                            # ODE of network-training/trpl_module.py (validation)
+
+# ── Plotting / notebook ──────────────────────────────────────────────────────
+matplotlib
+corner
+nbformat
+ipykernel
+
+# ── Preprocessing (preprocessing/data_utils.py) ──────────────────────────────
+torch
+splinetorch
+
+# ── Tests ────────────────────────────────────────────────────────────────────
+pytest
+
+# ── Optional ─────────────────────────────────────────────────────────────────
+# h5netcdf        # NetCDF export of the ArviZ posterior (otherwise skipped)
+# ultranest       # nested sampling / evidence (plan task T11, not implemented)

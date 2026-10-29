@@ -145,9 +145,11 @@ def solve_transient(tarr, npulse, Eg, Nc, Nv, krad, Nt, Et, taun, taup, T=300, b
     _stop.terminal  = True
     _stop.direction = -1
 
+    atol_vec = np.concatenate([[n0 * 1e-1], np.maximum(ni * 1e-1 * np.ones(M), 1.0)])
+
     # === Solve ODE ===
-    sol = solve_ivp(_ode, [tarr[0], tarr[-1]], x0,
-                    method='LSODA', rtol=1.0e-5, atol=1.0e-7, events=_stop)
+    sol = solve_ivp(_ode, [0.0, tarr[-1]], x0,
+                    method='LSODA', rtol=1.0e-5, atol=atol_vec, events=_stop)
 
     t = sol.t
     x = sol.y.T

@@ -1,0 +1,208 @@
+{
+  "_comment": "85:15 film, 2 traps, joint Bayesian inference (tr-PL + ss-PL) with tempered SMC. As configs/2trap_85-15_film_fit.json except the sigmas: sigma_trPL = sqrt(sigma_model^2 + sigma_nn^2) = sqrt(0.1450^2 + 0.1249^2) = 0.1913 dec (whole-curve error, log L = -MSE/(2 sigma^2)); sigma_nn = sqrt(test MSE of networks/2trap in log10 tau_diff); sigma_model = RMSE of log10 tau_diff between the drift-diffusion model and the 0D rate equations at the joint best fit (model-error-analysis/sigma_model.py, mu = 1 cm^2/Vs, reflection-corrected alpha(630 nm) = 5.07e4 /cm from data/85-15_film/absorptance.dat); sigma_ssPL = 0.0020214 eV.",
+  "run_name": "2trap_85-15_film",
+  "output_dir": "results/2trap_85-15_film",
+  "mode": "joint",
+  "physics": {
+    "Eg_eV": 1.625,
+    "npulse_cm3": 1.1299867915060214e+17,
+    "T_K": 300,
+    "thickness_nm": 450,
+    "npulse_info": {
+      "npulse_incident_cm3": 1.6e+17,
+      "absorptance_630nm": 0.7062417446912634,
+      "note": "absorbed excitation density = incident photons/d (1.6e17) x measured A(630 nm)"
+    }
+  },
+  "nn": {
+    "dir": "networks/2trap",
+    "stem": "2trap_training"
+  },
+  "prior": {
+    "order_traps": true,
+    "photodoping_traps": [],
+    "bounds_override": {
+      "Et_rel_1": [
+        0.5,
+        0.98
+      ],
+      "Et_rel_2": [
+        0.5,
+        0.98
+      ]
+    },
+    "fixed": {
+      "log10_krad": -10.319392571008212
+    }
+  },
+  "trpl": {
+    "path": "data/85-15_film/trpl_transient.csv",
+    "format": "raw",
+    "preprocess": true,
+    "spline_knots": 5,
+    "spline_points": 256,
+    "qfls_window": null,
+    "sigma": 0.1449558888423524,
+    "interp_space": "log10",
+    "skiprows": 1,
+    "points": "raw"
+  },
+  "sspl": {
+    "use": true,
+    "path": "data/85-15_film/sspl_suns_qfls.dat",
+    "format": "suns_qfls_dat",
+    "mode": "qfls_vs_suns",
+    "plqy_in_percent": false,
+    "absorptance": 0.8,
+    "sigma": 0.0020213839939686716,
+    "n_sweep": [
+      100000000.0,
+      null,
+      160
+    ],
+    "voc_rad_V": 1.333,
+    "sigma_info": "0.033958 is the paper's sigma for log10 PLQY; converted to QFLS: 0.033958 x kT ln10 (kT = 0.025852 eV) = 0.0020214 eV (QFLS = Voc,rad + kT ln suns + kT ln PLQY)"
+  },
+  "sigma_eff": false,
+  "start_point": {
+    "traps": [
+      {
+        "trap_type": "shallow",
+        "qfls_window": [
+          0.9,
+          1.2
+        ],
+        "dEt": 0.15,
+        "photodoping": true,
+        "Ntrap": 100000000000000.0
+      },
+      {
+        "trap_type": "shallow",
+        "qfls_window": [
+          0.9,
+          1.2
+        ],
+        "dEt": 0.1,
+        "photodoping": true,
+        "Ntrap": 100000000000000.0
+      }
+    ],
+    "explicit": {
+      "Et_eV": [
+        1.475,
+        1.525
+      ],
+      "Nt_cm3": [
+        6600000000000000.0,
+        4.6e+17
+      ],
+      "tau_n_s": [
+        5.6e-08,
+        8.1e-09
+      ],
+      "tau_p_s": [
+        5.6e-08,
+        8.1e-09
+      ],
+      "krad_cm3s": 1e-11,
+      "source": "trap parameters of the original submission"
+    }
+  },
+  "fit": {
+    "sigma0": 1.0,
+    "max_evals": 20000,
+    "tolfun": 1e-07,
+    "tolx": 1e-06,
+    "n_extra_sobol_starts": 31,
+    "n_polish": 3,
+    "ode_refine": true,
+    "ode_max_nfev": 60,
+    "n_jobs": 16
+  },
+  "nuts": {
+    "n_chains": 32,
+    "n_warmup": 1000,
+    "n_draws": 2000,
+    "metric": "dense",
+    "target_accept": 0.95,
+    "max_tree_depth": 10,
+    "init": "dispersed",
+    "seed": 0,
+    "run": false
+  },
+  "emcee": {
+    "run": false,
+    "n_walkers": 72,
+    "n_steps": 60000,
+    "moves": "stretch",
+    "burn_frac": 0.5,
+    "seed": 1
+  },
+  "sensitivity": {
+    "run": false,
+    "n_sobol_starts": 64,
+    "max_evals": 20000,
+    "n_chains_per_group": 16,
+    "n_warmup": 1000,
+    "n_draws": 1000,
+    "tol_neg_log_lik": 0.5
+  },
+  "profile": {
+    "run": false,
+    "param": "log10_Nt_2",
+    "n_grid": 40,
+    "n_random": 8,
+    "n_sweeps": 2,
+    "modes": [
+      "trpl",
+      "joint"
+    ],
+    "ode_check_endpoints": true
+  },
+  "ode": {
+    "check_best_fit": true,
+    "run_ode_fit": false,
+    "n_jobs": 16
+  },
+  "true_params": null,
+  "timing": {
+    "_comment": "timeit repeats (mean \u00b1 SD in 11_T8_timing_table.csv): 'repeats' for the short steps, 'repeats_long' for NUTS, emcee, grid and the ODE-only CMA-ES (each repeat is a full run)",
+    "repeats": 5,
+    "repeats_long": 3
+  },
+  "hardware": {
+    "cuda_device": "0",
+    "batch_size": 8192
+  },
+  "grid": {
+    "run": false,
+    "points_per_axis": 7,
+    "range": "window",
+    "halfwidth_log10": 2.0,
+    "halfwidth_Et_eV": 0.1
+  },
+  "t7_ode_reweight": {
+    "run": false,
+    "n_samples": 1000
+  },
+  "t9_trap_dynamics": {
+    "run": false,
+    "n_samples": 500,
+    "rel_tol": 0.001
+  },
+  "sigma_rule": "model_plus_nn",
+  "sigma_model_info": {
+    "method": "RMSE(log10 tau_diff, drift-diffusion (model-error-analysis/dd_model.py) - 0D rate equations) at the measured QFLS points",
+    "script": "model-error-analysis/sigma_model.py",
+    "alpha_630_cm": 50662.820622754065,
+    "alpha_choice": "reflection-corrected -ln(1 - A/A_max)/d",
+    "alpha_630_plain_formula_cm": 27222.215877596358,
+    "sigma_model_plain_formula": 0.06070738815522888,
+    "absorptance_file": "data/85-15_film/absorptance.dat",
+    "thickness_nm": 450,
+    "mu_cm2Vs": 1.0,
+    "npulse_cm3": 1.1299867915060214e+17,
+    "sigma_model": 0.1449558888423524,
+    "best_fit": "joint best fit of the 85:15 film (2 traps, absorbed n_pulse)"
+  }
+}
