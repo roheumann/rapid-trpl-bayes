@@ -1,0 +1,15 @@
+{
+  "network": "20261015-B2nf-moredata-nofinetune-1Trap-3609plus2e20",
+  "trained_from_scratch": true,
+  "training_wall_h_upper": 1.4019,
+  "training_fit_h": 1.37,
+  "epochs_trained": 141,
+  "source": "results/logs/2026-10-15_B2_nofinetune/STATUS.md: stage train_B2_nofinetune 2026-10-15 08:53:23 - 10:17:30 (84.1 min, incl. data loading and evaluation); train_B2_nofinetune.log: 'main: 141 epochs in 82.2 min'",
+  "simulations": {
+    "files": ["Synthetic-Training-Data/1Trap_TRPL_Simulation_04_09_2026_sims_524288_t_2.hdf5 (3609: 524288 solves, 3.36 CPU-h, 0.59 h wall, 8 workers)",
+              "Synthetic-Training-Data/1Trap_TRPL_Simulation_14_10_2026_sims_1048576_t_2.hdf5 (extra: 1048576 solves, 6.25 CPU-h, 1.40 h wall, 6 workers; results/logs/overnight_2026-10-14 stage data_sim 18:13:31 - 19:37:50)"],
+    "note": "read by inference.benchmark.offline_costs from the solve_time / completion_timestamps of both files"
+  },
+  "data_preparation_h": {"3609 prepare_training_data": 0.111, "extra prepare_training_data": 0.254, "merge_training_data": 0.002,
+                         "source": "3609 pipeline.log 11:43:57 - 11:50:38; overnight_2026-10-14 STATUS.md stages data_prepare (19:37:50 - 19:53:04) and merge_B2"}
+}

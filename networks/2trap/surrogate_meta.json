@@ -1,0 +1,20 @@
+{
+ "variant": "axis_head",
+ "axis": "predicted_window",
+ "outputs": [
+  "curve",
+  "axis"
+ ],
+ "axis_columns": [
+  "d_top",
+  "span_eV"
+ ],
+ "axis_unit_eV": 0.01,
+ "span_max_units": 71.43169803313867,
+ "definition": "q_max = 2 Vt ln(n_pulse/n_i) + d_top; axis = linspace(q_max - span_eV, q_max, 256)",
+ "param_scaler_path": "networks/2trap/2trap_training_param_scaler.joblib",
+ "output_scaler_path": "networks/2trap/2trap_training_output_scaler.joblib",
+ "training_hdf5": "networks/2trap/2trap_training.hdf5",
+ "init_model": "20261017-B2nf-2Trap-3611plus2e20/model.keras (warm start, not shipped)",
+ "phase": "phase1"
+}

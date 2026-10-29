@@ -1,0 +1,172 @@
+{
+  "_comment": "Synthetic 1-trap case: noise-free data (data/synthetic_1trap/) at the 90 measured QFLS points and the 10 measured ss-PL intensities of the 85:15 film; ground truth = the ODE-refined best fit of configs/1trap_85-15_film_fit.json (true_params). E_g 1.63 eV, n_pulse 1.130e17 cm^-3, k_rad fixed at 4.793e-11 cm^3/s (= truth), Voc,rad 1.333 V. sigma_trPL = sigma_nn = sqrt(test MSE of networks/1trap in log10 tau_diff) = 0.11235 (sigma_rule model_plus_nn with trpl.sigma 0), sigma_ssPL = 0.0020214 eV. Posterior: tempered SMC (smc.ipynb); NUTS / emcee / grid off.",
+  "run_name": "1trap_synthetic",
+  "output_dir": "results/1trap_synthetic",
+  "mode": "joint",
+  "physics": {
+    "Eg_eV": 1.63,
+    "npulse_cm3": 1.1299867915060214e+17,
+    "T_K": 300,
+    "thickness_nm": 450,
+    "npulse_info": {
+      "npulse_incident_cm3": 1.6e+17,
+      "absorptance_630nm": 0.7062417446912634,
+      "note": "absorbed excitation density = incident photons/d x measured A(630 nm)"
+    }
+  },
+  "nn": {
+    "dir": "networks/1trap",
+    "stem": "1trap_training"
+  },
+  "prior": {
+    "order_traps": true,
+    "photodoping_traps": [],
+    "bounds_override": {
+      "Et_rel_1": [
+        0.5,
+        0.98
+      ]
+    },
+    "fixed": {
+      "log10_krad": -10.319392571008212
+    }
+  },
+  "trpl": {
+    "path": "data/synthetic_1trap/synthetic_trpl_qfls_tau.csv",
+    "format": "processed",
+    "preprocess": false,
+    "qfls_window": null,
+    "sigma": 0.0,
+    "interp_space": "log10",
+    "skiprows": "auto"
+  },
+  "sspl": {
+    "use": true,
+    "path": "data/synthetic_1trap/synthetic_sspl_suns_qfls.csv",
+    "format": "auto",
+    "mode": "qfls_vs_suns",
+    "plqy_in_percent": false,
+    "absorptance": 0.8,
+    "sigma": 0.0020213839939686716,
+    "n_sweep": [
+      100000000.0,
+      null,
+      160
+    ],
+    "voc_rad_V": 1.333
+  },
+  "sigma_eff": false,
+  "start_point": {
+    "traps": [
+      {
+        "trap_type": "shallow",
+        "qfls_window": [
+          0.9,
+          1.2
+        ],
+        "dEt": 0.15,
+        "photodoping": true,
+        "Nt_n1_factor": 10,
+        "Ntrap": 100000000000000.0,
+        "krad_cm3s": "prior"
+      }
+    ]
+  },
+  "fit": {
+    "sigma0": 1.0,
+    "max_evals": 20000,
+    "tolfun": 1e-07,
+    "tolx": 1e-06,
+    "n_extra_sobol_starts": 31,
+    "n_polish": 3,
+    "ode_refine": true,
+    "ode_max_nfev": 60,
+    "n_jobs": 16
+  },
+  "nuts": {
+    "n_chains": 32,
+    "n_warmup": 1000,
+    "n_draws": 2000,
+    "metric": "dense",
+    "target_accept": 0.95,
+    "max_tree_depth": 10,
+    "init": "dispersed",
+    "seed": 0,
+    "run": false
+  },
+  "emcee": {
+    "run": false,
+    "n_walkers": 40,
+    "n_steps": 60000,
+    "moves": "stretch",
+    "burn_frac": 0.5,
+    "seed": 1
+  },
+  "sensitivity": {
+    "run": false,
+    "n_sobol_starts": 64,
+    "max_evals": 20000,
+    "n_chains_per_group": 16,
+    "n_warmup": 1000,
+    "n_draws": 1000,
+    "tol_neg_log_lik": 0.5
+  },
+  "profile": {
+    "run": false,
+    "param": "log10_Nt_1",
+    "n_grid": 40,
+    "n_random": 8,
+    "n_sweeps": 2,
+    "modes": [
+      "trpl",
+      "joint"
+    ],
+    "ode_check_endpoints": true
+  },
+  "ode": {
+    "check_best_fit": true,
+    "run_ode_fit": false,
+    "n_jobs": 16
+  },
+  "true_params": {
+    "Et_eV": [
+      1.4649990694381474
+    ],
+    "Nt_cm3": [
+      5.736159124019073e+16
+    ],
+    "tau_n_s": [
+      4.9730410911930725e-09
+    ],
+    "tau_p_s": [
+      7.765284458535476e-08
+    ],
+    "krad_cm3s": 4.79300000407748e-11
+  },
+  "timing": {
+    "_comment": "timeit repeats (mean \u00b1 SD in 11_T8_timing_table.csv): 'repeats' for the short steps, 'repeats_long' for NUTS, emcee, grid and the ODE-only CMA-ES (each repeat is a full run)",
+    "repeats": 5,
+    "repeats_long": 1
+  },
+  "hardware": {
+    "cuda_device": "0",
+    "batch_size": 8192
+  },
+  "grid": {
+    "run": false,
+    "points_per_axis": 35,
+    "range": "prior",
+    "halfwidth_log10": 2.0,
+    "halfwidth_Et_eV": 0.1
+  },
+  "t7_ode_reweight": {
+    "run": false,
+    "n_samples": 1000
+  },
+  "t9_trap_dynamics": {
+    "run": false,
+    "n_samples": 500,
+    "rel_tol": 0.001
+  },
+  "sigma_rule": "model_plus_nn"
+}

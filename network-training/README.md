@@ -1,111 +1,40 @@
-# TRPL Neural Network Training
+# network-training/
 
-Four-stage pipeline for training a neural-network surrogate that predicts TRPL
-differential lifetime curves (τ_diff vs. QFLS) from physical material parameters
-(trap density, energy, lifetimes, bandgap, excitation density).
+Simulation of the training data and training of the two networks in `networks/`. The inference itself only needs
+`trpl_module.py`: `inference/ode.py` loads it for every rate-equation evaluation (best-fit refinement with
+`curve_fit`, checks against the network, `ode_inference.ipynb`).
 
-The trained model and scaler artefacts can be loaded directly into the fitting
-and uncertainty-analysis pipelines via `load_nn_artifacts` in `trpl_fitting.py`.
-
-> **For full documentation see [TRAINING_MANUAL.md](TRAINING_MANUAL.md).**
-
----
-
-## Pipeline overview
-
-```
-sobol_generator_NTrap_Fluence-Thickness-Bandgap.py
-        ↓  Sobol-sampled parameter space → HDF5 skeleton
-generate_trpl_dataset.py
-        ↓  ODE physics simulation → populates HDF5
-prepare_training_data.py
-        ↓  train/val/test split + scalers → training HDF5 + .joblib files
-train_nn.py
-        ↓  Conv1DTranspose MLP → model.keras + diagnostics
-```
-
----
-
-## Files
-
-| File | Description |
+| script | step |
 |---|---|
-| `sobol_generator_NTrap_Fluence-Thickness-Bandgap.py` | Stage 1 — Sobol quasi-random parameter sampling |
-| `generate_trpl_dataset.py` | Stage 2 — SRH ODE simulation for each parameter set (resumable) |
-| `prepare_training_data.py` | Stage 3 — preprocessing, 80/10/10 split, StandardScaler + MinMaxScaler |
-| `train_nn.py` | Stage 4 — model training with optional W&B logging |
-| `visualize_training.py` | Plot training history and confusion matrices after training |
-| `nn_predict_all.py` | Batch NN inference on a full parameter grid (GPU) |
-| `nn_predict_all_cpu.py` | Same as above, CPU-only variant |
-| `trpl_module.py` | SRH transient ODE solver — shared with `fitting/` and `uncertainity_analysis/` |
-| `train_pipeline.sh` | Shell wrapper that runs all four stages end-to-end |
-| `submit_training.sh` | SLURM job script for HPC cluster submission |
+| `sobol_generator_NTrap_Fluence-Thickness-Bandgap.py` | Sobol design of the parameters → HDF5 skeleton |
+| `generate_trpl_dataset.py` | solves the rate equations for every sample (`trpl_module.solve_transient`, parallel) |
+| `trpl_module.py` | the 0D SRH rate equations with detrapping and radiative recombination (`solve_transient`, `calcequil_general`) |
+| `prepare_training_data.py` | τ_diff vs QFLS on 256 points per curve, train/val/test split, scalers → training HDF5 + `.joblib` |
+| `merge_training_data.py` | merges two prepared training sets (keeps the val/test split of the first) |
+| `train_conv_v2.py` | trains the Conv1D network (body as in `baseline_code_2026-10-13/train_nn.py`, cosine learning rate) |
+| `train_axis_head.py` | adds the axis head (q_max offset and span of every curve) to a trained network (2-trap network) |
+| `train_nn.py` | original training script (also used by the unit tests for a random-weight model) |
+| `baseline_code_2026-10-13/` | the scripts that produced the original 1-trap and 2-trap data sets; `train_conv_v2.py` imports `train_nn.py` from here |
 
----
+The two copies of `trpl_module.py` differ only in the start of the time integration: `baseline_code_2026-10-13/`
+starts at t = t_min = 1e-11 s, the top-level one at t = 0 (`generate_trpl_dataset.py` shifts the time axis by
+t_min so that both give the same time axis). The right-hand side does not depend on t explicitly. The 1-trap extra
+data were simulated with the baseline copy, the 2-trap extra data with the top-level copy.
 
-## Quick start
-
-```bash
-# Stage 1 — generate Sobol samples (edit N_TRAPS and DIM at the top first)
-python sobol_generator_NTrap_Fluence-Thickness-Bandgap.py
-
-# Stage 2 — run ODE simulations (resumable; pass the HDF5 path from stage 1)
-python generate_trpl_dataset.py Synthetic-Training-Data/<name>.hdf5
-
-# Stage 3 — preprocess into training dataset
-python prepare_training_data.py Synthetic-Training-Data/<name>.hdf5
-
-# Stage 4 — train
-python train_nn.py Synthetic-Training-Data/<name>_training.hdf5 \
-    --output-dir Results/my_run --epochs 200
-```
-
-Or run all stages at once on a cluster:
+Example (2-trap extra data and network, as for `networks/2trap/`):
 
 ```bash
-bash submit_training.sh --n-traps 1 --dim 14
+python sobol_generator_NTrap_Fluence-Thickness-Bandgap.py --n-traps 2 --dim 21 --scramble-seed 20261017 \
+    --output-dir sobol --n-pulse-min 1e12 --n-pulse-max 1e18 --eg-min 1.15 --eg-max 2.4 --krad-min 1e-12 \
+    --krad-max 1e-9 --ntrap-min 1e12 --ntrap-max 2e18 --delta-etrap-min 0.02 --delta-etrap-max 0.98 \
+    --taun-min 1e-12 --taun-max 1e-4 --taup-min 1e-12 --taup-max 1e-4
+python generate_trpl_dataset.py sobol/<name>.hdf5 8
+python prepare_training_data.py sobol/<name>.hdf5 <name>_training.hdf5
+python merge_training_data.py <first>_training.hdf5 <name>_training.hdf5 merged/<stem>.hdf5
+python train_conv_v2.py merged/<stem>.hdf5 --output-dir <net> --head dense --lr 1e-3 --lr-schedule cosine \
+    --epochs 200 --patience 40 --batch-size 256 --no-finetune
+python train_axis_head.py <net>/<stem>.hdf5 --init-model <net>/model.keras --stem <stem> --output-dir <net_axis> \
+    --head-epochs 60 --joint-epochs 40 --lambda-axis 1e-3 --huber-delta 0.5
 ```
 
----
-
-## Dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-W&B logging (`--wandb` flag in `train_nn.py`) requires an optional install:
-
-```bash
-pip install wandb
-```
-
----
-
-## Outputs
-
-After training, `--output-dir` contains:
-
-| File | Content |
-|---|---|
-| `model.keras` | Trained Keras model (load into `fitting/` and `uncertainity_analysis/`) |
-| `history.csv` / `history_complete.csv` / `history_finetune.csv` | Loss and metric values per epoch (full run and fine-tune stages) |
-| `loss_history.csv` | Condensed loss summary |
-| `metrics_summary.csv` | Final train / val / test metrics |
-| `training_details.json` | Architecture, hyperparameters, and final results |
-| `training_history.png` | Loss curve plot |
-| `test_curves_sample.png` | Example predicted vs. ground-truth τ_diff curves |
-| `nn_inference_times_batch.csv` | Batch NN inference timing |
-| `nn_inference_times_batch_all.csv` | Batch inference timing across the full dataset |
-| `nn_inference_times_sequential.csv` | Sequential (single-sample) inference timing |
-| `pipeline.log` | Full console log of the training run |
-
-The three artefact files produced by `prepare_training_data.py`
-(`<stem>_training.hdf5`, `<stem>_param_scaler.joblib`, `<stem>_output_scaler.joblib`)
-must remain in the same directory as `model.keras` and are required at inference time.
-
----
-
-## Authors
-
-Robin Heumann — 2026
+The full training data of both networks are in Jülich DATA.

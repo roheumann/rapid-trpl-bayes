@@ -1,0 +1,122 @@
+{
+  "timestamp": "2026-10-15T10:17:03",
+  "data": {
+    "hdf5_path": "/data/home/ro.heumann/simulations/nn-training/data_B2_20261014/merged/1Trap_TRPL_3609plus2e20_training.hdf5",
+    "n_train": 1468006,
+    "n_val": 52429,
+    "n_test": 52429,
+    "input_dim": 7,
+    "output_dim": 256
+  },
+  "architecture": {
+    "type": "UpSampling1D + Conv1D",
+    "num_conv_layers": 2,
+    "max_filter": 128,
+    "kernel_size": 16,
+    "dropout_rate": 0.0,
+    "use_batch_norm": false,
+    "total_parameters": 3319136,
+    "trainable_parameters": 3319136,
+    "layers": [
+      {
+        "name": "parameters",
+        "type": "InputLayer",
+        "trainable_params": 0
+      },
+      {
+        "name": "dense_seed_0",
+        "type": "Dense",
+        "trainable_params": 1024,
+        "units": 128,
+        "activation": "gelu"
+      },
+      {
+        "name": "dense_seed_1",
+        "type": "Dense",
+        "trainable_params": 1056768,
+        "units": 8192,
+        "activation": "gelu"
+      },
+      {
+        "name": "reshape",
+        "type": "Reshape",
+        "trainable_params": 0
+      },
+      {
+        "name": "upsample_0",
+        "type": "UpSampling1D",
+        "trainable_params": 0
+      },
+      {
+        "name": "conv_0",
+        "type": "Conv1D",
+        "trainable_params": 131136
+      },
+      {
+        "name": "upsample_1",
+        "type": "UpSampling1D",
+        "trainable_params": 0
+      },
+      {
+        "name": "conv_1",
+        "type": "Conv1D",
+        "trainable_params": 32800
+      },
+      {
+        "name": "flatten",
+        "type": "Flatten",
+        "trainable_params": 0
+      },
+      {
+        "name": "output",
+        "type": "Dense",
+        "trainable_params": 2097408,
+        "units": 256,
+        "activation": "sigmoid"
+      }
+    ]
+  },
+  "training": {
+    "batch_size": 256,
+    "epochs_max": 200,
+    "epochs_trained": 141,
+    "patience": 40,
+    "optimizer": "Adam",
+    "loss": "mse",
+    "lr_initial": 0.001,
+    "lr_decay_rate": 0.995,
+    "lr_decay_steps": "steps_per_epoch",
+    "callbacks": [
+      "EarlyStopping(monitor=val_loss, restore_best_weights=True)",
+      "ReduceLROnPlateau(monitor=val_loss, factor=0.5, patience=patience//3)",
+      "TensorBoard",
+      "CSVLogger"
+    ],
+    "lr_schedule": "cosine",
+    "warmup_epochs": 3,
+    "min_lr_factor": 0.001,
+    "init_model": null,
+    "head": "dense",
+    "pod_p": null,
+    "head_epochs": null,
+    "script": "train_conv_v2.py"
+  },
+  "results": {
+    "train_loss": 2.4762111934251152e-05,
+    "train_mse": 2.4762111934251152e-05,
+    "train_mae": 0.0014795043971389532,
+    "r2_train": 0.9989947048272387,
+    "train_mse_log10": 0.007037407252937555,
+    "val_loss": 3.57053431798704e-05,
+    "val_mse": 3.57053431798704e-05,
+    "val_mae": 0.0015470267971977592,
+    "r2_val": 0.9985413001604082,
+    "val_mse_log10": 0.01014748215675354,
+    "test_loss": 4.441284909262322e-05,
+    "test_mse": 4.441284909262322e-05,
+    "test_mae": 0.0016106333350762725,
+    "r2_test": 0.9981902688402897,
+    "test_mse_log10": 0.012622161768376827,
+    "best_val_loss": 3.5706059861695394e-05
+  }
+}

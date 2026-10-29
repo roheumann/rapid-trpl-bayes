@@ -1,0 +1,9 @@
+{
+ "network": "20261017-A3-axis-B2nf-2Trap-3611plus2e20",
+ "trained_from_scratch": false,
+ "training_wall_h_upper": 3.6370038704739676,
+ "axis_head_wall_h": 1.065736360616154,
+ "warm_start_training_wall_h_upper": 2.5712675098578135,
+ "source": "warm start 20261017-B2nf-2Trap-3611plus2e20 (training_details.json (wall_time_s)) + train_axis_head.py wall time",
+ "simulations": "same simulation files as the warm-start network (no new ODE runs)"
+}

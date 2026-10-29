@@ -11,7 +11,11 @@ completion_timestamps back into the same file.
 
 Usage
 -----
-    python generate_trpl_dataset.py <path_to_hdf5_file>
+    python generate_trpl_dataset.py <path_to_hdf5_file> [n_jobs]
+
+Simulations run in parallel across n_jobs worker processes (joblib/loky).
+n_jobs defaults to $SLURM_CPUS_PER_TASK (matching --cpus-per-task in
+submit_training.sh) when running under SLURM, else all visible CPU cores.
 
 The script can be re-started after an interruption: samples whose
 solve_time > 0 are skipped automatically (resume support).
@@ -36,6 +40,7 @@ After the run, load completion_timestamps from the HDF5 file:
     plt.show()
 """
 
+import os
 import sys
 import time
 import numpy as np
@@ -44,6 +49,7 @@ from pathlib import Path
 from scipy.interpolate import PchipInterpolator
 import pandas as pd
 from numba import njit
+from joblib import Parallel, delayed
 
 # ── make sspl_module importable (required by trpl_module) ────────────────────
 
@@ -89,6 +95,51 @@ def decode_params(par, N_TRAPS):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Per-sample worker (runs in a joblib subprocess)
+# ─────────────────────────────────────────────────────────────────────────────
+def _simulate_one(par, N_TRAPS, tmin, tmax):
+    """
+    Decode one Sobol row and run solve_transient for it.
+
+    Kept as a top-level function (not nested in main()) so it can be pickled
+    and shipped to joblib's worker processes. Does no HDF5 I/O itself — the
+    HDF5 file handle is not picklable/fork-safe for concurrent writers, so
+    every worker just returns arrays and the parent process (main()) is the
+    single writer.
+
+    Returns
+    -------
+    ok : bool
+        True if the simulation succeeded.
+    result : dict or None
+        {'time_log', 'pl_log', 'qfls', 'tau_log'} on success, else None.
+    err : str or None
+        Exception message on failure, else None.
+    dt : float
+        Wall time spent decoding + integrating this sample [s].
+    """
+    t_start = time.monotonic()
+    try:
+        npulse, Eg, krad, Nt, Et, taun, taup = decode_params(par, N_TRAPS)
+        (t_sim, n_tr, p_tr, nt_tr,
+         QFLS_sim, tau_diff, _tau_n, _tau_p,
+         PL_sim, *_) = solve_transient(
+            [tmin, tmax], npulse, Eg, NC, NV, krad, Nt, Et, taun, taup)
+
+        result = dict(
+            # time in ns, shifted by tmin (= 1e-11 s): the solver starts at t = 0 (16/10/2026), so t + tmin is the
+            # time axis of the earlier start at tmin (first point exactly tmin, no log10(0))
+            time_log=np.log10((t_sim + tmin) * 1e9),
+            pl_log=np.log10(PL_sim),
+            qfls=QFLS_sim,
+            tau_log=np.log10(tau_diff),
+        )
+        return True, result, None, time.monotonic() - t_start
+    except Exception as exc:
+        return False, None, str(exc), time.monotonic() - t_start
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Interpolation helper
 # ─────────────────────────────────────────────────────────────────────────────
 def to_grid(t_sim, data, tarr):
@@ -106,8 +157,16 @@ def to_grid(t_sim, data, tarr):
 # ─────────────────────────────────────────────────────────────────────────────
 # Main loop
 # ─────────────────────────────────────────────────────────────────────────────
-def main(hdf5_path: Path):
+CHUNK_SIZE = 2000   # samples submitted to the worker pool per parallel batch
+
+
+def main(hdf5_path: Path, n_jobs: int = None):
     t0_wall = time.monotonic()
+
+    if n_jobs is None:
+        # SLURM_CPUS_PER_TASK matches --cpus-per-task in submit_training.sh;
+        # fall back to all visible cores when run outside SLURM.
+        n_jobs = int(os.environ.get('SLURM_CPUS_PER_TASK', os.cpu_count() or 1))
 
     with h5py.File(hdf5_path, 'r+') as hf:
         par_mat    = hf['par_mat_ln'][:]       # (n_samples, n_params)
@@ -129,10 +188,13 @@ def main(hdf5_path: Path):
         print(f"N_TRAPS   : {N_TRAPS}")
         print(f"N samples : {n_samples}")
         print(f"Grid pts  : {QFLS_STEPS}")
-        print(f"HDF5      : {hdf5_path.resolve()}\n")
+        print(f"HDF5      : {hdf5_path.resolve()}")
+        print(f"Workers   : {n_jobs} (joblib/loky)\n")
 
         # ── resume support ────────────────────────────────────────────────
-        already_done = int(np.sum(solve_ds[:] > 0))
+        solve_arr     = solve_ds[:]
+        already_done  = int(np.sum(solve_arr > 0))
+        todo          = np.flatnonzero(solve_arr <= 0)   # indices still to run
         if already_done:
             print(f"Resuming: {already_done} done, "
                   f"{n_samples - already_done} remaining.\n")
@@ -144,60 +206,55 @@ def main(hdf5_path: Path):
         cum_sim_times_per_sample = []   # per-sample simulation time [s]
         cum_n_curves = []               # cumulative count of simulated curves
 
-        for i in range(n_samples):
-            if solve_ds[i] > 0:    # already finished → skip
-                continue
+        # ── parallel simulation loop ────────────────────────────────────
+        # Workers only compute (decode_params + solve_transient); the HDF5
+        # file itself is written exclusively here in the parent process,
+        # since an h5py File is not fork/pickle-safe for concurrent writers.
+        with Parallel(n_jobs=n_jobs, backend='loky') as parallel:
+            for start in range(0, len(todo), CHUNK_SIZE):
+                chunk = todo[start:start + CHUNK_SIZE]
 
-            par     = par_mat[i]
-            npulse, Eg, krad, Nt, Et, taun, taup = decode_params(par, N_TRAPS)
-            t_start = time.monotonic()
+                results = parallel(
+                    delayed(_simulate_one)(par_mat[i], N_TRAPS, tmin, tmax)
+                    for i in chunk
+                )
 
-            try:
-                (t_sim, n_tr, p_tr, nt_tr,
-                 QFLS_sim, tau_diff, _tau_n, _tau_p,
-                 PL_sim, *_) = solve_transient(
-                    [tmin,tmax], npulse, Eg, NC, NV, krad, Nt, Et, taun, taup)
+                for i, (ok, result, err, dt) in zip(chunk, results):
+                    wall_now = time.monotonic() - t0_wall
 
-                # normalise PL to peak = 1 and interpolate onto tarr
-                PL_norm = PL_sim
-                hf['time'][i] = np.log10(t_sim*1e9) #time in ns
-                hf['pl'][i]       = np.log10(PL_norm)
-                hf['qfls'][i]     = QFLS_sim
-                hf['tau_diff'][i] = np.log10(tau_diff)
+                    if ok:
+                        hf['time'][i]     = result['time_log']
+                        hf['pl'][i]       = result['pl_log']
+                        hf['qfls'][i]     = result['qfls']
+                        hf['tau_diff'][i] = result['tau_log']
+                        completed += 1
+                    else:
+                        print(f"  [FAIL] sample {i:6d}: {err}")
+                        failed += 1
 
-                completed  += 1
+                    solve_ds[i] = dt
+                    ts_ds[i]    = wall_now    # seconds since this run started
 
-            except Exception as exc:
-                print(f"  [FAIL] sample {i:6d}: {exc}")
-                failed += 1
+                    n_this_run += 1
+                    cum_time += dt
+                    cum_sim_times_per_sample.append(dt)
+                    cum_n_curves.append(n_this_run)
 
-            dt       = time.monotonic() - t_start
-            wall_now = time.monotonic() - t0_wall
+                    # ── progress report ──────────────────────────────────
+                    if n_this_run % 500 == 0 or n_this_run == 1:
+                        rate = n_this_run / wall_now if wall_now > 0 else float('nan')
+                        remaining = n_samples - completed - failed
+                        eta  = remaining / rate if rate > 0 else float('nan')
+                        print(f"  [{completed + failed:6d}/{n_samples}]  "
+                              f"rate={rate:5.1f} sim/s  "
+                              f"elapsed={wall_now:7.0f} s  "
+                              f"ETA={eta:7.0f} s  "
+                              f"failed={failed}")
 
-            solve_ds[i] = dt
-            ts_ds[i]    = wall_now    # seconds since this run started
+                    # ── periodic flush every 1000 samples ─────────────────
+                    if n_this_run % 1000 == 0:
+                        hf.flush()
 
-            n_this_run += 1
-            cum_time += dt
-            cum_sim_times_per_sample.append(dt)
-            cum_n_curves.append(n_this_run)
-
-
-            # ── progress report ──────────────────────────────────────────
-            if n_this_run % 500 == 0 or n_this_run == 1:
-                rate = n_this_run / wall_now if wall_now > 0 else float('nan')
-                remaining = n_samples - completed - failed
-                eta  = remaining / rate if rate > 0 else float('nan')
-                print(f"  [{completed + failed:6d}/{n_samples}]  "
-                      f"rate={rate:5.1f} sim/s  "
-                      f"elapsed={wall_now:7.0f} s  "
-                      f"ETA={eta:7.0f} s  "
-                      f"failed={failed}")
-
-            # ── periodic flush every 1000 samples ────────────────────────
-            if n_this_run % 1000 == 0:
-                hf.flush()
-        
         cumulative_times = np.cumsum(cum_sim_times_per_sample)
         data = pd.DataFrame({
             'n_curves': cum_n_curves,
@@ -219,8 +276,9 @@ def main(hdf5_path: Path):
 
 
 if __name__ == '__main__':
-    if len(sys.argv) != 2:
+    if len(sys.argv) not in (2, 3):
         print(__doc__)
         sys.exit(1)
-    main(Path(sys.argv[1]))
+    n_jobs_arg = int(sys.argv[2]) if len(sys.argv) == 3 else None
+    main(Path(sys.argv[1]), n_jobs=n_jobs_arg)
     #main(Path("Synthetic-Training-Data/1Trap_TRPL_Simulation_10_03_2026_sims_32_t_256.hdf5"))
