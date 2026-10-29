@@ -35,7 +35,7 @@ python -m pytest tests -q          # unit tests (random weights where a network 
 | `smc.py` | gradient-free adaptive importance sampling: likelihood-tempered SMC (adaptive β at ESS ≈ 0.5 N, systematic resampling, random-walk MH with the weighted-particle covariance, independent islands; log Z and log Z(σ')) and AMIS (Student-t mixture in u, started from the eigenvector cylinders + defensive prior draws, weighted EM, balance-heuristic weights, PSIS k̂); every likelihood evaluation is one batched call for the whole population; results are `SamplerResult`s with weights (notebook `smc.ipynb`) |
 | `grid.py` | full-dimensional grid posterior (streamed, normalised 1-D/2-D marginals, intervals, plots) |
 | `cylinder.py` | eigenvector-cylinder importance sampling around the best fit; Laplace covariance: curve_fit (mode `trpl`) or Gauss–Newton at θ* (`laplace_cov`, modes `sspl` / `joint`) |
-| `corner_export.py`, `corner_plot.py` | one HDF5 file per corner plot (posterior-mass bands, 1σ/2σ contours) for Origin (`corner-plot/origin/build_corner.py`) and the matplotlib preview; comparison corner of several samplers (`write_comparison_corner`, `scripts/combined_corner.py`) |
+| `corner_export.py`, `corner_plot.py` | one HDF5 file per corner plot (posterior-mass bands, 1σ/2σ contours) (also readable by Origin) and the matplotlib preview; comparison corner of several samplers (`write_comparison_corner`, `scripts/combined_corner.py`) |
 | `runs.py` | rebuilds the likelihood of a finished main.ipynb run (any mode) for `smc.ipynb`, `ppc.ipynb` and the scripts |
 | `multi.py` | tr-PL likelihood for many data sets in one batch (SBC, coverage) |
 | `sbc.py` | T5: computational simulation-based calibration (ranks, histograms, ECDF, uniformity tests) |

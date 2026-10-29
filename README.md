@@ -36,7 +36,6 @@ preprocessing/        tr-PL preprocessing (trim, spline, τ_diff vs QFLS) and th
 scripts/              command-line helpers: notebook runner, SBC, sliced corner, corner figures, tables, timing
 model-error-analysis/ drift-diffusion model and σ_model (model error of the 0D rate equations)
 network-training/     simulation of the training data and training of the networks (incl. the rate-equation solver)
-corner-plot/          Origin scripts and templates for the corner figures
 tests/                unit tests (python -m pytest tests -q)
 results/              output of the notebooks and scripts (one folder per run)
 ```
@@ -155,7 +154,7 @@ python scripts/credible_intervals_table.py results/1trap_synthetic/1trap_synthet
 python scripts/end_to_end_timing.py results/1trap_synthetic/1trap_synthetic --out results/1trap_synthetic/end_to_end_timing
 ```
 
-`scripts/README.md` lists every helper script. `corner-plot/origin/README.md` describes the Origin figures.
+`scripts/README.md` lists every helper script.
 
 ---
 
@@ -163,8 +162,9 @@ python scripts/end_to_end_timing.py results/1trap_synthetic/1trap_synthetic --ou
 
 `networks/1trap/` (1 trap) and `networks/2trap/` (2 traps, with an axis head that predicts the QFLS window of every
 curve) hold the Keras models, the input/output scalers and a small HDF5 file with the metadata of their training set.
-Training data, architecture and accuracy are described in `networks/README.md`. The full training data (5–7 GB per
-network) are in Jülich DATA. `network-training/` has the code that simulated and trained them.
+Training data, architecture and accuracy are described in `networks/README.md`. The full training data are in Jülich DATA as lossless compact files (`<n>trap_training_compact.h5`);
+`network-training/restore_training_data.py` turns them back into the training HDF5 files (5–7 GB each).
+`network-training/` also has the code that simulated and trained the networks.
 
 ---
 

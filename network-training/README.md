@@ -37,4 +37,25 @@ python train_axis_head.py <net>/<stem>.hdf5 --init-model <net>/model.keras --ste
     --head-epochs 60 --joint-epochs 40 --lambda-axis 1e-3 --huber-delta 0.5
 ```
 
-The full training data of both networks are in Jülich DATA.
+## Full training data (Jülich DATA)
+
+The training files of both networks are archived in a lossless compact form (`1trap_training_compact.h5`,
+`2trap_training_compact.h5`, plain HDF5 with gzip). The compact files drop everything that can be recomputed: the
+scaled arrays `X_<s>` and `y_<s>` (= scaler.transform of the raw arrays) and the QFLS axes `qfls_<s>` (= linspace
+between their first and last point, plus a last-bit correction). The curves `y_<s>_raw` are stored as bit deltas
+along the QFLS axis, and both scalers and a SHA-256 checksum of every original dataset are stored inside.
+
+| script | step |
+|---|---|
+| `compact_training_data.py <training.hdf5> <compact.h5>` | training HDF5 → compact file |
+| `restore_training_data.py <compact.h5> <training.hdf5>` | compact file → training HDF5 + `<stem>_param_scaler.joblib`, `<stem>_output_scaler.joblib`; checks every dataset against its checksum |
+
+The restored file is bit-identical to the original in every dataset, except `param_scaler_path` / `output_scaler_path`,
+which point to the restored scaler files. It is the input of `train_conv_v2.py`, `train_nn.py` and `train_axis_head.py`:
+
+```bash
+python restore_training_data.py 1trap_training_compact.h5 data/1Trap_TRPL_3609plus2e20_training.hdf5
+python restore_training_data.py 2trap_training_compact.h5 data/2Trap_TRPL_3611plus2e20_training.hdf5
+```
+
+Restoring needs about 5 GB (1 trap) and 7 GB (2 traps) of disk space.

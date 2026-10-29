@@ -25,7 +25,7 @@ Command-line helpers around the notebooks. Run them from the repository root (`p
 | `end_to_end_timing.py` | end-to-end time table (network workflow vs rate equations) |
 | `timing_repeats.py`, `timing_table_mean_sd.py` | mean ± SD of wall time and evaluations over independent seeds, one table |
 
-## Figures (matplotlib previews + HDF5 / CSV for the Origin scripts in `corner-plot/origin/`)
+## Figures (matplotlib previews + HDF5 / CSV files, e.g. for Origin)
 
 | script | what it does |
 |---|---|
