@@ -128,6 +128,37 @@ def density_2d(vx, vy, w, xr, yr, bins=60, smooth=1.0):
     return 0.5 * (ex[1:] + ex[:-1]), 0.5 * (ey[1:] + ey[:-1]), (h / (s * a) if s > 0 else h)
 
 
+def local_range(v, lo, hi, q=(0.05, 99.95), pad=0.15):
+    """Range of the draws v (central 99.9 %, padded by 15 % of its width), at most 1 unit beyond [lo, hi]."""
+    a, b = np.percentile(v, q)
+    p = max(pad * (b - a), 1e-6)
+    return max(a - p, lo - 1.0), min(b + p, hi + 1.0)
+
+
+def density_1d_local(v, lo, hi, bins=200, smooth=2.0):
+    """1D density on a grid around the draws (local_range), so the kernel (smooth bins) scales with the width of the
+    posterior: a 1e-3-decade posterior is resolved as well as a 3-decade one (13/11/2026, sigma-ladder frames).
+    Returns x, pdf with a zero at both ends of the local range."""
+    a, b = local_range(v, lo, hi)
+    h, e = np.histogram(v, bins=bins, range=(a, b), density=True)
+    if smooth:
+        h = gaussian_filter(h, smooth, mode="constant")
+    return np.r_[a, 0.5 * (e[1:] + e[:-1]), b], np.r_[0.0, h, 0.0]
+
+
+def density_2d_local(vx, vy, xr, yr, bins=120, smooth=2.0):
+    """2D density on a grid around the draws (local_range of each axis), kernel = smooth bins of that grid.
+    Returns x, y (cell centres), density (ny, nx), normalised."""
+    ax_, bx = local_range(vx, *xr)
+    ay, by = local_range(vy, *yr)
+    h, ex, ey = np.histogram2d(vx, vy, bins=bins, range=[(ax_, bx), (ay, by)])
+    if smooth:
+        h = gaussian_filter(h, smooth, mode="constant")
+    h = h.T
+    s = h.sum() * (ex[1] - ex[0]) * (ey[1] - ey[0])
+    return 0.5 * (ex[1:] + ex[:-1]), 0.5 * (ey[1:] + ey[:-1]), (h / s if s > 0 else h)
+
+
 def contour_polyline(x, y, level_map, level):
     """Contour of the HPD level map at `level` as one (n, 2) array with NaN rows between segments."""
     import contourpy

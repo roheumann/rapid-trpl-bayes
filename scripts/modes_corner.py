@@ -91,6 +91,23 @@ def interp2(Z, x, y, xf, yf):
     return np.array([np.interp(yf, y, col) for col in Zx.T]).T
 
 
+def interp_mass(lev, x, y, xf, yf):
+    """HPD level map interpolated onto xf, yf; outside the grid of x, y (a local grid, --adaptive) = 1 (no mass)."""
+    m = interp2(lev, x, y, xf, yf)
+    m[:, (xf < x[0]) | (xf > x[-1])] = 1.0
+    m[(yf < y[0]) | (yf > y[-1]), :] = 1.0
+    return m
+
+
+def sample_coverage(lev, x, y, vx, vy):
+    """Fraction of the draws inside the drawn 68 / 95 % regions (HPD level map lev on the grid x, y) — for an
+    undistorted density estimate close to 0.6827 / 0.9545."""
+    from scipy.interpolate import RegularGridInterpolator
+    f = RegularGridInterpolator((y, x), lev, bounds_error=False, fill_value=1.0)
+    L = f(np.c_[vy, vx])
+    return {"inside_68": float((L <= SIGMA[0]).mean()), "inside_95": float((L <= SIGMA[1]).mean())}
+
+
 def levels(mass, s1=SIGMA[0], s2=SIGMA[1]):
     return np.where(mass <= s1, 2, np.where(mass <= s2, 1, 0)).astype(np.uint8)
 
@@ -114,6 +131,17 @@ def main():
     ap.add_argument("--fill-mode", default=None, help=f"mode drawn filled (default {FILL_MODE}, or the only mode)")
     ap.add_argument("--best-fit-run", default=None,
                     help="run folder whose 6_best_fit.json / best-fit curves give the best fit (default: the joint run)")
+    ap.add_argument("--smooth", type=float, default=SMOOTH, help="Gaussian smoothing of the 2D histograms (bins; 0 = none)")
+    ap.add_argument("--smooth-1d", type=float, default=1.5, help="Gaussian smoothing of the 1D marginals (bins; 0 = none)")
+    ap.add_argument("--bins-2d", type=int, default=60, help="2D histogram bins per axis (over the prior range)")
+    ap.add_argument("--bins-1d", type=int, default=120, help="1D histogram bins (over the prior range)")
+    ap.add_argument("--adaptive", action="store_true",
+                    help="densities on a grid around each mode's draws (corner_export.density_*_local; kernel = 2 bins of "
+                         "that grid, as the sigma-ladder video frames) instead of the prior-range grid; --smooth/--bins ignored")
+    ap.add_argument("--getdist", action="store_true",
+                    help="densities from GetDist (Lewis 2019, arXiv:1910.13970): KDE with automatic, correlation-aware "
+                         "bandwidth and boundary correction at the prior bounds; overrides --adaptive/--smooth/--bins")
+    ap.add_argument("--out-name", default="corner_modes", help="output folder in the joint run (default corner_modes)")
     ap.add_argument("--extras-only", action="store_true",
                     help="only (re)write medians, best-fit curves and the N_t1/N_t2 photodoping line into the existing "
                          "corner_modes.h5 (write_extras), nothing else recomputed")
@@ -130,7 +158,7 @@ def main():
 
     base = Path(a.base)
     run = {m: Path(f"{base}_{m}") for m in modes}
-    out = run["joint"] / "corner_modes"
+    out = run["joint"] / a.out_name
     out.mkdir(parents=True, exist_ok=True)
 
     theta, priors, cfgs, arts = {}, {}, {}, {}
@@ -166,9 +194,24 @@ def main():
         return
     G = a.grid
     colors27 = blended_colors()
+    MC = {}
+    if a.getdist:
+        from getdist import MCSamples
+        for m in modes:
+            MC[m] = MCSamples(samples=X[m], names=list(keys), ranges={k: list(ranges[k]) for k in keys},
+                              settings={"contours": list(SIGMA)}, label=m)
+    coverage = []
 
     with h5py.File(out / "corner_modes.h5", "w") as f:
-        f.attrs.update({"param_order": json.dumps(keys), "modes": json.dumps(modes),
+        f.attrs.update({"smoothing_json": json.dumps({"getdist": True, "settings": "GetDist defaults (automatic 1D/2D "
+                                                      "smoothing scale, boundary correction at the prior ranges)"}
+                                                     if a.getdist else
+                                                     {"adaptive": True, "bins_2d": 120, "smooth_2d_bins": 2.0, "bins_1d": 200,
+                                                      "smooth_1d_bins": 2.0, "grid": "around the draws of each mode"}
+                                                     if a.adaptive else
+                                                     {"smooth_2d_bins": a.smooth, "smooth_1d_bins": a.smooth_1d,
+                                                      "bins_2d": a.bins_2d, "bins_1d": a.bins_1d}),
+                        "param_order": json.dumps(keys), "modes": json.dumps(modes),
                         "mode_labels_json": json.dumps(MODE_LABEL), "mode_colors_json": json.dumps(COLORS),
                         "colors27_json": json.dumps(colors27), "sigma_levels": np.array(SIGMA),
                         "fill_mode": fm, "fill_colors_json": json.dumps(fill_colors(fm)),
@@ -192,7 +235,15 @@ def main():
             if kind == "1d":
                 g = pan.create_group(kx)
                 for m in modes:
-                    x, pdf = ce.density_1d(X[m][:, col[kx]], np.full(len(X[m]), 1 / len(X[m])), *ranges[kx])
+                    if a.getdist:
+                        d1 = MC[m].get1DDensity(kx)
+                        x, pdf = np.asarray(d1.x, float), np.asarray(d1.P, float)
+                        pdf = pdf / np.trapezoid(pdf, x)
+                    elif a.adaptive:
+                        x, pdf = ce.density_1d_local(X[m][:, col[kx]], *ranges[kx])
+                    else:
+                        x, pdf = ce.density_1d(X[m][:, col[kx]], np.full(len(X[m]), 1 / len(X[m])), *ranges[kx],
+                                               bins=a.bins_1d, smooth=a.smooth_1d)
                     g[f"{m}_x"], g[f"{m}_pdf"] = x, pdf
                 continue
             g = pan.create_group(f"{kx}__{ky}")
@@ -201,11 +252,21 @@ def main():
             cat = np.zeros((G, G), np.uint8)
             for mi, m in enumerate(modes):
                 w = np.full(len(X[m]), 1 / len(X[m]))
-                x, y, dens = ce.density_2d(X[m][:, col[kx]], X[m][:, col[ky]], w, ranges[kx], ranges[ky], smooth=SMOOTH)
+                if a.getdist:
+                    d2 = MC[m].get2DDensityGridData(kx, ky)
+                    x, y, dens = np.asarray(d2.x, float), np.asarray(d2.y, float), np.asarray(d2.P, float)
+                elif a.adaptive:
+                    x, y, dens = ce.density_2d_local(X[m][:, col[kx]], X[m][:, col[ky]], ranges[kx], ranges[ky])
+                else:
+                    x, y, dens = ce.density_2d(X[m][:, col[kx]], X[m][:, col[ky]], w, ranges[kx], ranges[ky],
+                                               bins=a.bins_2d, smooth=a.smooth)
                 lev = ce.hpd_level_map(dens)
-                cat += (3 ** mi * levels(interp2(lev, x, y, xf, yf))).astype(np.uint8)
+                coverage.append({"panel": f"{kx}__{ky}", "mode": m, **sample_coverage(lev, x, y, X[m][:, col[kx]],
+                                                                                    X[m][:, col[ky]])})
+                mass = interp_mass(lev, x, y, xf, yf)
+                cat += (3 ** mi * levels(mass)).astype(np.uint8)
                 if m == fm:                                       # continuous mass: smooth fills in Origin
-                    g[f"{m}_mass"] = interp2(lev, x, y, xf, yf).astype(np.float32)
+                    g[f"{m}_mass"] = mass.astype(np.float32)
                 g[f"{m}_sigma1"] = ce.contour_polyline(x, y, lev, SIGMA[0])
                 g[f"{m}_sigma2"] = ce.contour_polyline(x, y, lev, SIGMA[1])
             g["cat"], g["x"], g["y"] = cat, xf, yf
@@ -251,6 +312,12 @@ def main():
                 if name in f:
                     f[name].attrs["mode"] = a.slice_mode
         write_extras(f, best_dir, keys, X["joint"], meta)
+        f.attrs["coverage_json"] = json.dumps(coverage)
+    import pandas as pd
+    cov = pd.DataFrame(coverage)
+    cov.to_csv(out / "coverage.csv", index=False, float_format="%.4f")
+    print("fraction of each mode's draws inside its drawn 68 / 95 % regions (nominal 0.683 / 0.955):")
+    print(cov.pivot(index="panel", columns="mode", values=["inside_68", "inside_95"]).round(3).to_string())
     print("written:", out / "corner_modes.h5")
     preview(out / "corner_modes.h5", out / "corner_modes_preview.png")
 

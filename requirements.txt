@@ -25,6 +25,7 @@ numba                            # ODE of network-training/trpl_module.py (valid
 # ── Plotting / notebook ──────────────────────────────────────────────────────
 matplotlib
 corner
+getdist==1.7.7                   # corner densities (scripts/modes_corner.py --getdist)
 nbformat
 ipykernel
 
